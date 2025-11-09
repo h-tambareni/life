@@ -16,6 +16,19 @@ export const getMonthStart = (date: Date) =>
 export const addMonths = (date: Date, months: number) =>
   new Date(date.getFullYear(), date.getMonth() + months, 1);
 
+export const getLastNDates = (count: number, endDate = new Date()) => {
+  const dates: Date[] = [];
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const date = new Date(
+      endDate.getFullYear(),
+      endDate.getMonth(),
+      endDate.getDate() - index,
+    );
+    dates.push(date);
+  }
+  return dates;
+};
+
 export const getDaysInMonth = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
 
