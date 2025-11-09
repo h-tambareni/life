@@ -1,7 +1,14 @@
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+const pad = (value: number) => value.toString().padStart(2, "0");
+
 export const getISODateString = (date: Date) =>
-  date.toISOString().split("T")[0];
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+export const toDateFromISO = (iso: string) => {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1);
+};
 
 export const getMonthStart = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth(), 1);

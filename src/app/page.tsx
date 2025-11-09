@@ -21,6 +21,7 @@ import {
   getDaysInMonth,
   getISODateString,
   getMonthStart,
+  toDateFromISO,
 } from "@/lib/date-utils";
 
 const DAILY_ENTRIES_KEY = "lifeDashboard_dailyEntries";
@@ -37,7 +38,7 @@ const dietIcons: Record<
   "lateNightRegret" | "unhealthyEating" | "friedFood",
   string
 > = {
-  lateNightRegret: "🌙",
+  lateNightRegret: "🚫",
   unhealthyEating: "🍔",
   friedFood: "🍟",
 };
@@ -254,7 +255,7 @@ export default function Home() {
         const sleepHours = calculateSleepHours(entry?.bedtime, entry?.wakeTime);
         const patternDiff =
           patternStartDate && patternStartDate <= iso
-            ? differenceInDays(new Date(patternStartDate), date)
+            ? differenceInDays(toDateFromISO(patternStartDate), date)
             : null;
         const plannedWorkoutType: WorkoutType =
           patternDiff !== null && patternDiff % 2 === 0 && patternDiff >= 0
@@ -414,13 +415,13 @@ export default function Home() {
     if (lastFriedEntry) {
       friedFoodCleanStreak = Math.max(
         0,
-        differenceInDays(new Date(lastFriedEntry.date), today),
+        differenceInDays(toDateFromISO(lastFriedEntry.date), today),
       );
     } else if (Object.keys(dailyEntries).length > 0) {
       const earliestDate = Object.keys(dailyEntries).sort()[0];
       friedFoodCleanStreak = Math.max(
         0,
-        differenceInDays(new Date(earliestDate), today),
+        differenceInDays(toDateFromISO(earliestDate), today),
       );
     }
 
@@ -554,12 +555,12 @@ export default function Home() {
 
       if (slips.length === 0) {
         const streak =
-          differenceInDays(new Date(category.startDate), todayDate) + 1;
+          differenceInDays(toDateFromISO(category.startDate), todayDate) + 1;
         return { category, streak: Math.max(streak, 0), slips: [] as typeof slips };
       }
 
       const lastSlip = slips[slips.length - 1];
-      const dayAfterLastSlip = new Date(lastSlip.date);
+      const dayAfterLastSlip = toDateFromISO(lastSlip.date);
       dayAfterLastSlip.setDate(dayAfterLastSlip.getDate() + 1);
       const diff = differenceInDays(dayAfterLastSlip, todayDate);
       const streak = Math.max(0, diff + 1);
