@@ -11,7 +11,7 @@ interface HighlightedInputProps {
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }
 
 export default function HighlightedInput({
