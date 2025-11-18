@@ -7,11 +7,17 @@ export interface DailyEntry {
   bedtime?: string; // HH:MM (24h)
   wakeTime?: string; // HH:MM (24h)
   lateNightRegret?: boolean;
-  unhealthyEating?: boolean;
-  friedFood?: boolean;
+  unhealthyEating?: {
+    highSugars?: boolean;
+    friedFood?: boolean;
+    extremeSodium?: boolean;
+  };
   sick?: boolean;
   runDuration?: number; // Duration in minutes
   runDistance?: number; // Distance in miles
+  // Legacy fields for migration (deprecated)
+  /** @deprecated Use unhealthyEating.friedFood instead */
+  friedFood?: boolean;
 }
 
 export interface SobrietyCategory {

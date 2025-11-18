@@ -97,3 +97,70 @@ export const formatDisplayDate = (iso: string) => {
   return `${month}/${day}/${year}`;
 };
 
+export const getWeekStart = (date: Date) => {
+  const start = new Date(date);
+  start.setDate(start.getDate() - start.getDay());
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+export const getWeekEnd = (date: Date) => {
+  const end = new Date(date);
+  end.setDate(end.getDate() + (6 - end.getDay()));
+  end.setHours(23, 59, 59, 999);
+  return end;
+};
+
+const dayColors: Record<number, string> = {
+  0: "text-[#dc2626]", // Sunday - Red
+  1: "text-[#ea580c]", // Monday - Orange
+  2: "text-[#f59e0b]", // Tuesday - Amber
+  3: "text-[#eab308]", // Wednesday - Yellow
+  4: "text-[#84cc16]", // Thursday - Lime
+  5: "text-[#22c55e]", // Friday - Green
+  6: "text-[#10b981]", // Saturday - Emerald
+};
+
+const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+const monthAbbrevs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export const formatRelativeDate = (iso: string, time?: string): { label: string; color: string } => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const taskDate = toDateFromISO(iso);
+  taskDate.setHours(0, 0, 0, 0);
+  
+  const diffDays = differenceInDays(today, taskDate);
+  
+  if (diffDays === 0) {
+    return { label: "Today", color: "text-[#3f6b4a]" };
+  } else if (diffDays === 1) {
+    return { label: "Tomorrow", color: "text-[#3f6b4a]" };
+  }
+  
+  // Check if within the next 7 days from today (rolling week)
+  // This includes Sunday if it's coming up within 7 days
+  const nextWeekStart = new Date(today);
+  nextWeekStart.setDate(nextWeekStart.getDate() + 7);
+  nextWeekStart.setHours(0, 0, 0, 0);
+  
+  if (taskDate < nextWeekStart) {
+    // Within the next 7 days - show day name
+    const dayOfWeek = taskDate.getDay();
+    return {
+      label: dayNames[dayOfWeek],
+      color: dayColors[dayOfWeek] || "text-[#3f3227]",
+    };
+  } else {
+    // Past the next 7 days - show month abbreviation and day
+    const month = monthAbbrevs[taskDate.getMonth()];
+    const day = taskDate.getDate();
+    return {
+      label: `${month} ${day}`,
+      color: "text-[#8c7a63]",
+    };
+  }
+};
+
