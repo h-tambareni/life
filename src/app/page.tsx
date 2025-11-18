@@ -632,6 +632,41 @@ export default function Home() {
     return formatMinutesToTime(rangeAverageWakeMinutes) ?? null;
   }, [rangeAverageWakeMinutes]);
 
+  const runMetrics = useMemo(() => {
+    const runEntries = monthEntryList.filter(
+      (entry) => entry.workout === "run" && (entry.runDuration || entry.runDistance),
+    );
+
+    if (runEntries.length === 0) {
+      return {
+        totalDistance: 0,
+        totalTime: 0,
+        averagePace: null,
+        runs: 0,
+      };
+    }
+
+    const totalDistance = runEntries.reduce(
+      (sum, entry) => sum + (entry.runDistance || 0),
+      0,
+    );
+    const totalTime = runEntries.reduce(
+      (sum, entry) => sum + (entry.runDuration || 0),
+      0,
+    );
+
+    // Calculate average pace (minutes per mile)
+    const averagePace =
+      totalDistance > 0 ? totalTime / totalDistance : null;
+
+    return {
+      totalDistance,
+      totalTime,
+      averagePace,
+      runs: runEntries.length,
+    };
+  }, [monthEntryList]);
+
   const dietSummary = useMemo(() => {
     const regretEntries = monthEntryList.filter(
       (entry) => entry.lateNightRegret !== undefined,
@@ -1013,20 +1048,20 @@ export default function Home() {
   }, [lastSyncedAt]);
 
   return (
-    <main className="min-h-screen bg-[#f4f0e6] py-12 text-[#2f2820]">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 pb-24">
+    <main className="min-h-screen bg-[#f4f0e6] py-4 text-[#2f2820] sm:py-12">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 pb-16 sm:gap-10 sm:px-6 sm:pb-24">
         <section className="grid gap-4 sm:grid-cols-3">
           {progressMetrics.map((metric) => (
             <ProgressMetricCard key={metric.id} metric={metric} />
           ))}
         </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-[#d6c2a1] bg-[#fbf6ec] px-5 py-4">
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#d6c2a1] bg-[#fbf6ec] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:rounded-3xl sm:px-5 sm:py-4">
           <div className="flex items-center gap-2 rounded-full bg-[#f1e6d4] p-1">
             <button
               type="button"
               onClick={() => handleTimeframeChange("week")}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
                 timeframe === "week"
                   ? "bg-[#3f6b4a] text-[#f4efe6]"
                   : "text-[#3f3227] hover:bg-[#efe0c9]"
@@ -1037,7 +1072,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => handleTimeframeChange("month")}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
                 timeframe === "month"
                   ? "bg-[#3f3227] text-[#f4efe6]"
                   : "text-[#3f3227] hover:bg-[#efe0c9]"
@@ -1046,7 +1081,7 @@ export default function Home() {
               Month
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-xs sm:gap-4 sm:text-sm">
             <span className="font-semibold text-[#3f6b4a]">
               Workouts {rangeWorkoutSummary.total}/
               {rangeWorkoutSummary.targetDays}
@@ -1067,7 +1102,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-xs text-[#8e7b63]">
+        <div className="flex flex-wrap items-center gap-2 text-[0.7rem] text-[#8e7b63] sm:gap-3 sm:text-xs">
           {remoteEnabled ? (
             <>
               <span
@@ -1102,11 +1137,11 @@ export default function Home() {
         </div>
 
         <div className="flex flex-col gap-8 lg:grid lg:grid-cols-[minmax(0,2.3fr)_minmax(340px,1fr)] lg:items-start">
-          <section className={`${cardShellClass} flex h-full flex-col p-6`}>
-            <header className="mb-6 flex items-center justify-between gap-3">
+          <section className={`${cardShellClass} flex h-full flex-col p-3 sm:p-6`}>
+            <header className="mb-4 flex flex-col gap-2 sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <div>
                 <p className={headingAccentClass}>Calendar</p>
-                <h1 className="font-heading text-3xl text-[#3b2f25]">
+                <h1 className="font-heading text-xl text-[#3b2f25] sm:text-3xl">
                   {timeframe === "week"
                     ? currentWeekLabel
                     : formatMonthYear(currentMonth)}
@@ -1164,8 +1199,8 @@ export default function Home() {
                 )}
               </div>
             </header>
-            <div className={`${insetCardClass} mb-6 flex flex-col gap-2 p-4`}>
-              <label className={headingAccentClass}>
+            <div className={`${insetCardClass} mb-4 flex flex-col gap-2 p-3 sm:mb-6 sm:p-4`}>
+              <label className={`${headingAccentClass} text-[0.65rem] sm:text-[0.7rem]`}>
                 Every-other-day workout starts
               </label>
               <input
@@ -1174,16 +1209,16 @@ export default function Home() {
                 onChange={(event) =>
                   handlePatternStartChange(event.target.value)
                 }
-                className="w-full rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-3 py-2 text-sm text-[#3f3227] focus:border-[#a67a45] focus:outline-none focus:ring-0"
+                className="w-full rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-2 py-1.5 text-xs text-[#3f3227] focus:border-[#a67a45] focus:outline-none focus:ring-0 sm:px-3 sm:py-2 sm:text-sm"
               />
             </div>
-            <div className="grid grid-cols-7 gap-3 text-center text-[0.68rem] font-heading uppercase tracking-[0.32em] text-[#a2875e]">
+            <div className="grid grid-cols-7 gap-1.5 text-center text-[0.6rem] font-heading uppercase tracking-[0.32em] text-[#a2875e] sm:gap-3 sm:text-[0.68rem]">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                 <span key={day}>{day}</span>
               ))}
             </div>
             {timeframe === "month" ? (
-              <div className="mt-3 grid grid-cols-7 gap-3">
+              <div className="mt-2 grid grid-cols-7 gap-1.5 sm:mt-3 sm:gap-3">
                 {monthDays.leadingEmpty.map((_, index) => (
                   <div
                     key={`empty-${index}`}
@@ -1200,7 +1235,7 @@ export default function Home() {
                 ))}
               </div>
             ) : (
-              <div className="mt-3 grid grid-cols-7 gap-3">
+              <div className="mt-2 grid grid-cols-7 gap-1.5 sm:mt-3 sm:gap-3">
                 {weekDates.map((day) => (
                   <CalendarDayCell
                     key={day.iso}
@@ -1211,6 +1246,7 @@ export default function Home() {
                 ))}
               </div>
             )}
+            <CalendarLegend />
           </section>
 
           <aside className="flex h-full flex-col gap-6 self-start">
@@ -1247,7 +1283,7 @@ export default function Home() {
               </MetricCard>
               <MetricCard title="Diet" subtitle="This month">
                 <MetricRow
-                  label="Late-night regret days"
+                  label="Fycompa regret days"
                   value={dietSummary.regretDays}
                 />
                 <MetricRow
@@ -1271,15 +1307,49 @@ export default function Home() {
                   value={`${dietSummary.lateNightCleanStreak} nights`}
                 />
               </MetricCard>
+              {runMetrics.runs > 0 && (
+                <MetricCard title="Running" subtitle="This month">
+                  <MetricRow
+                    label="Total runs"
+                    value={runMetrics.runs}
+                  />
+                  <MetricRow
+                    label="Total distance"
+                    value={`${runMetrics.totalDistance.toFixed(2)} mi`}
+                  />
+                  <MetricRow
+                    label="Total time"
+                    value={
+                      runMetrics.totalTime >= 60
+                        ? `${Math.floor(runMetrics.totalTime / 60)}h ${Math.round(runMetrics.totalTime % 60)}m`
+                        : `${Math.round(runMetrics.totalTime)}m`
+                    }
+                  />
+                  <MetricRow
+                    label="Average pace"
+                    value={
+                      runMetrics.averagePace !== null
+                        ? (() => {
+                            const minutes = Math.floor(runMetrics.averagePace);
+                            const seconds = Math.round(
+                              (runMetrics.averagePace - minutes) * 60,
+                            );
+                            return `${minutes}:${seconds.toString().padStart(2, "0")}/mi`;
+                          })()
+                        : "—"
+                    }
+                  />
+                </MetricCard>
+              )}
             </section>
           </aside>
         </div>
 
-        <section className={`${cardShellClass} p-6`}>
-          <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <section className={`${cardShellClass} p-3 sm:p-6`}>
+          <header className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div>
-              <p className={headingAccentClass}>Sobriety</p>
-              <h2 className="font-heading text-xl text-[#3b2f25]">
+              <p className={`${headingAccentClass} text-[0.65rem] sm:text-[0.7rem]`}>Sobriety</p>
+              <h2 className="font-heading text-base text-[#3b2f25] sm:text-xl">
                 Categories & slips
               </h2>
             </div>
@@ -1447,7 +1517,7 @@ export default function Home() {
         type="button"
         onClick={openQuickEntry}
         aria-label="Open quick entry"
-        className="fixed bottom-8 right-8 z-30 flex h-16 w-16 items-center justify-center rounded-full bg-[#3f6b4a] text-3xl text-[#f4efe6] shadow-[0_18px_36px_rgba(47,38,32,0.18)] transition hover:bg-[#2f4d35]"
+        className="fixed bottom-4 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#3f6b4a] text-2xl text-[#f4efe6] shadow-[0_18px_36px_rgba(47,38,32,0.18)] transition hover:bg-[#2f4d35] sm:bottom-8 sm:right-8 sm:h-16 sm:w-16 sm:text-3xl"
       >
         ✨
       </button>
@@ -1494,12 +1564,12 @@ function MetricCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${cardShellClass} flex flex-col gap-3 p-5`}>
+    <div className={`${cardShellClass} flex flex-col gap-2 p-3 sm:gap-3 sm:p-5`}>
       <div>
-        <p className={headingAccentClass}>
+        <p className={`${headingAccentClass} text-[0.65rem] sm:text-[0.7rem]`}>
           {subtitle}
         </p>
-        <h3 className="font-heading text-xl text-[#3b2f25]">{title}</h3>
+        <h3 className="font-heading text-base text-[#3b2f25] sm:text-xl">{title}</h3>
       </div>
       <div className={`${insetCardClass} flex flex-col divide-y divide-[#e2d4bc]`}>
         {children}
@@ -1510,7 +1580,7 @@ function MetricCard({
 
 function MetricRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 text-sm">
+    <div className="flex items-center justify-between px-2 py-2 text-xs sm:px-4 sm:py-3 sm:text-sm">
       <span className="text-[#8c7a63]">{label}</span>
       <span className="font-semibold text-[#3f3227]">{value}</span>
     </div>
@@ -1541,10 +1611,10 @@ function ProgressMetricCard({ metric }: { metric: ProgressMetric }) {
 
   return (
     <div
-      className={`${cardShellClass} flex flex-col gap-3 p-5 text-left transition hover:shadow-[0_18px_36px_rgba(47,38,32,0.12)]`}
+      className={`${cardShellClass} flex flex-col gap-2 p-3 text-left transition hover:shadow-[0_18px_36px_rgba(47,38,32,0.12)] sm:gap-3 sm:p-5`}
     >
-      <div className="flex items-center gap-4">
-        <div className="relative h-24 w-24">
+      <div className="flex items-center gap-2 sm:gap-4">
+        <div className="relative h-16 w-16 shrink-0 sm:h-24 sm:w-24">
           <svg
             viewBox="0 0 100 100"
             className="h-full w-full"
@@ -1575,24 +1645,24 @@ function ProgressMetricCard({ metric }: { metric: ProgressMetric }) {
             />
           </svg>
           <div
-            className={`absolute inset-[18px] grid place-content-center rounded-full ${colors.background}`}
+            className={`absolute inset-[12px] grid place-content-center rounded-full ${colors.background} sm:inset-[18px]`}
           >
-          <span className={`font-body text-lg font-semibold ${textColor}`}>
+          <span className={`font-body text-sm font-semibold ${textColor} sm:text-lg`}>
               {displayValue}
             </span>
           {metric.showPercent !== false && (
-            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[#a2875e]">
+            <span className="text-[0.55rem] font-semibold uppercase tracking-[0.28em] text-[#a2875e] sm:text-[0.65rem]">
               {percent}%
             </span>
           )}
           </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-heading text-sm uppercase tracking-[0.35em] text-[#a2875e]">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
+          <span className="font-heading text-xs uppercase tracking-[0.35em] text-[#a2875e] sm:text-sm">
             {metric.label}
           </span>
           {metric.caption && (
-            <span className="text-xs text-[#8c7a63]">{metric.caption}</span>
+            <span className="text-[0.7rem] text-[#8c7a63] sm:text-xs">{metric.caption}</span>
           )}
         </div>
       </div>
@@ -1671,14 +1741,16 @@ function CalendarDayCell({
   const hasLoggedWorkout = loggedWorkout !== "none";
   const hasPlannedWorkout =
     !hasLoggedWorkout && plannedWorkoutType !== "none";
+  const isSick = entry?.sick === true;
+  const isSickAndNoGym = isSick && loggedWorkout === "none" && plannedWorkoutType === "gym";
   const sleepTone =
     sleepHours === undefined
-      ? "text-[#8c7a63]"
+      ? "text-[#8c7a63] font-normal"
       : sleepHours < 7
-        ? "text-[#b78a33]"
+        ? "text-[#f59e0b] font-bold"
         : sleepHours <= 9
-          ? "text-[#3f6b4a]"
-          : "text-[#8c7a63]";
+          ? "text-[#10b981] font-bold"
+          : "text-[#ef4444] font-bold";
   const dietMarks = [
     entry?.lateNightRegret ? dietIcons.lateNightRegret : null,
     entry?.unhealthyEating ? dietIcons.unhealthyEating : null,
@@ -1689,40 +1761,137 @@ function CalendarDayCell({
     <button
       type="button"
       onClick={() => onSelect(iso, plannedWorkoutType)}
-      className={`relative flex aspect-square flex-col items-center rounded-2xl border p-3 transition-colors ${
+      className={`relative flex aspect-square flex-col items-center rounded-xl border p-1.5 transition-colors sm:rounded-2xl sm:p-3 ${
         hasLoggedWorkout
           ? "border-[#3f6b4a] bg-[#e4f1e9]"
           : hasPlannedWorkout
             ? "border-[#9cbc8a] border-dashed bg-[#eef6eb]"
             : "border-[#d8c9af] bg-[#fbf6ec]"
-      } ${isToday ? "ring-2 ring-[#c9b38c]" : ""}`}
+      } ${isToday ? "ring-1 ring-[#c9b38c] sm:ring-2" : ""}`}
     >
       <div className="flex w-full items-baseline justify-between">
-        <span className="font-heading text-base text-[#3f3227]">
+        <span className="font-heading text-xs text-[#3f3227] sm:text-base">
           {date.getDate()}
         </span>
-        <span className={`text-xs font-semibold ${sleepTone}`}>
-          {sleepHours ? `${sleepHours}h` : ""}
-        </span>
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          {isSick && (
+            <span className="text-[0.6rem] sm:text-xs" role="img" aria-label="sick">
+              🤒
+            </span>
+          )}
+          <span className={`text-[0.6rem] ${sleepTone} sm:text-xs`}>
+            {sleepHours ? `${sleepHours}h` : ""}
+          </span>
+        </div>
       </div>
       <span
-        className={`flex grow items-center text-2xl ${
+        className={`flex grow items-center text-lg sm:text-2xl ${
           hasPlannedWorkout ? "text-[#9cbb7c]" : "text-[#3f6b4a]"
         }`}
       >
-        {workoutIcon[loggedWorkout]}
+        {loggedWorkout === "gym" && entry?.gymDayType === "lower" ? (
+          "🦵"
+        ) : (
+          workoutIcon[loggedWorkout]
+        )}
       </span>
       {hasPlannedWorkout && (
-        <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#3f6b4a]" />
+        <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[#3f6b4a] sm:top-2 sm:right-2 sm:h-2 sm:w-2" />
       )}
       {dietMarks.length > 0 && (
-        <span className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1 text-xs">
+        <span className="absolute bottom-0.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 text-[0.6rem] sm:bottom-1.5 sm:gap-1 sm:text-xs">
           {dietMarks.map((mark, index) => (
             <span key={`${iso}-mark-${index}`}>{mark}</span>
           ))}
         </span>
       )}
     </button>
+  );
+}
+
+function CalendarLegend() {
+  return (
+    <div className={`${insetCardClass} mt-4 p-3 sm:mt-6 sm:p-4`}>
+      <p className={`${headingAccentClass} mb-2 text-[0.65rem] sm:mb-3 sm:text-[0.7rem]`}>Calendar Guide</p>
+      <div className="grid gap-3 text-xs sm:grid-cols-2 sm:text-sm lg:grid-cols-3">
+        <div className="flex flex-col gap-2">
+          <p className="font-semibold text-[#3f3227]">Workouts</p>
+          <div className="flex flex-col gap-1.5 text-[#8c7a63]">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🏋️</span>
+              <span>Upper body gym</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🦵</span>
+              <span>Lower body gym</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🏃</span>
+              <span>Run</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <p className="font-semibold text-[#3f3227]">Sleep Hours</p>
+          <div className="flex flex-col gap-1.5 text-[#8c7a63]">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#f59e0b]">7h</span>
+              <span>&lt; 7 hours (low)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#10b981]">8h</span>
+              <span>7–9 hours (optimal)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#ef4444]">10h</span>
+              <span>&gt; 9 hours</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <p className="font-semibold text-[#3f3227]">Diet & Health</p>
+          <div className="flex flex-col gap-1.5 text-[#8c7a63]">
+            <div className="flex items-center gap-5">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-xs font-bold uppercase tracking-[0.2em] text-[#a7342d]">
+                Failed
+              </span>
+              <span>Fycompa regret</span>
+            </div>
+            <div className="flex items-center gap-5">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">🍔</span>
+              <span>Unhealthy eating</span>
+            </div>
+            <div className="flex items-center gap-5">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">🍟</span>
+              <span>Fried food</span>
+            </div>
+            <div className="flex items-center gap-5">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-xs">🤒</span>
+              <span>Sick</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <p className="font-semibold text-[#3f3227]">Border Colors</p>
+          <div className="flex flex-col gap-1.5 text-[#8c7a63]">
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-8 w-8 rounded-lg border-2 border-[#3f6b4a] bg-[#e4f1e9]"></span>
+              <span>Logged workout</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="relative inline-block h-8 w-8 rounded-lg border-2 border-dashed border-[#9cbc8a] bg-[#eef6eb]">
+                <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[#3f6b4a]"></span>
+              </span>
+              <span>Planned workout</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-8 w-8 rounded-lg border-2 border-[#d8c9af] bg-[#fbf6ec]"></span>
+              <span>No workout</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1871,6 +2040,7 @@ function DayDetailSheet({
   onDelete: () => void;
   onChange: (entry: DailyEntry) => void;
 }) {
+  const [isSickExpanded, setIsSickExpanded] = useState(entry.sick === true);
   const sleepHours = calculateSleepHours(entry.bedtime, entry.wakeTime);
   return (
     <div
@@ -1882,14 +2052,14 @@ function DayDetailSheet({
       }}
       role="presentation"
     >
-      <div className="w-full max-w-md rounded-3xl border border-[#d6c2a1] bg-[#f9f3e7] p-6 shadow-[0_28px_56px_rgba(47,38,32,0.35)]">
-        <header className="mb-4 flex items-start justify-between">
+      <div className="w-full max-w-md rounded-2xl border border-[#d6c2a1] bg-[#f9f3e7] p-4 shadow-[0_28px_56px_rgba(47,38,32,0.35)] sm:rounded-3xl sm:p-6">
+        <header className="mb-3 flex items-start justify-between gap-2 sm:mb-4 sm:gap-0">
           <div>
-            <h2 className="font-heading text-2xl text-[#3b2f25]">
+            <h2 className="font-heading text-lg text-[#3b2f25] sm:text-2xl">
               {formatDisplayDate(entry.date)}
             </h2>
             {sleepHours && (
-              <p className="text-sm text-[#8c7a63]">
+              <p className="text-xs text-[#8c7a63] sm:text-sm">
                 Sleep {sleepHours}h
               </p>
             )}
@@ -1911,7 +2081,7 @@ function DayDetailSheet({
                 <button
                   key={value}
                   type="button"
-                  onClick={() => onChange({ ...entry, workout: value })}
+                  onClick={() => onChange({ ...entry, workout: value, gymDayType: value === "gym" ? entry.gymDayType : undefined })}
                   className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
                     entry.workout === value
                       ? "border-[#8c5a30] bg-[#f2e3d2] text-[#3f3227]"
@@ -1923,6 +2093,81 @@ function DayDetailSheet({
               ))}
             </div>
           </fieldset>
+
+          {entry.workout === "gym" && (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
+                Gym Day Type
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...entry, gymDayType: "upper" })}
+                  className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
+                    entry.gymDayType === "upper"
+                      ? "border-[#8c5a30] bg-[#f2e3d2] text-[#3f3227]"
+                      : "border-[#d0c0a0] text-[#8c7a63] hover:border-[#b99c6b]"
+                  }`}
+                >
+                  Upper
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...entry, gymDayType: "lower" })}
+                  className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
+                    entry.gymDayType === "lower"
+                      ? "border-[#8c5a30] bg-[#f2e3d2] text-[#3f3227]"
+                      : "border-[#d0c0a0] text-[#8c7a63] hover:border-[#b99c6b]"
+                  }`}
+                >
+                  Lower
+                </button>
+              </div>
+            </div>
+          )}
+
+          {entry.workout === "run" && (
+            <div className="flex gap-3">
+              <label className="flex w-full flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
+                Duration (minutes)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={entry.runDuration ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      ...entry,
+                      runDuration: event.target.value
+                        ? parseFloat(event.target.value)
+                        : undefined,
+                    })
+                  }
+                  placeholder="0"
+                  className="rounded-2xl border border-[#d0c0a0] bg-[#fdf8ef] px-3 py-2 text-sm text-[#3f3227] focus:border-[#a67a45] focus:outline-none focus:ring-0"
+                />
+              </label>
+              <label className="flex w-full flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
+                Distance (miles)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={entry.runDistance ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      ...entry,
+                      runDistance: event.target.value
+                        ? parseFloat(event.target.value)
+                        : undefined,
+                    })
+                  }
+                  placeholder="0.00"
+                  className="rounded-2xl border border-[#d0c0a0] bg-[#fdf8ef] px-3 py-2 text-sm text-[#3f3227] focus:border-[#a67a45] focus:outline-none focus:ring-0"
+                />
+              </label>
+            </div>
+          )}
 
           <div className="flex gap-3">
             <label className="flex w-full flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
@@ -1952,7 +2197,7 @@ function DayDetailSheet({
           <fieldset className="flex flex-col gap-3">
             <legend className={headingAccentClass}>Diet</legend>
             <ToggleRow
-              label="Late-night regret"
+              label="Fycompa regret"
               active={entry.lateNightRegret === true}
               onToggle={(next) =>
                 onChange({ ...entry, lateNightRegret: next })
@@ -1971,6 +2216,29 @@ function DayDetailSheet({
               onToggle={(next) => onChange({ ...entry, friedFood: next })}
             />
           </fieldset>
+
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setIsSickExpanded(!isSickExpanded)}
+              className="flex items-center justify-between rounded-2xl border border-[#d0c0a0] px-3 py-2 text-sm font-medium text-[#3f3227] transition hover:border-[#b99c6b] hover:bg-[#fdf8ef]"
+            >
+              <span className="flex items-center gap-2">
+                <span role="img" aria-label="sick">🤒</span>
+                <span>Sick</span>
+              </span>
+              <span className="text-xs text-[#8c7a63]">
+                {isSickExpanded ? "−" : "+"}
+              </span>
+            </button>
+            {isSickExpanded && (
+              <ToggleRow
+                label="I was sick"
+                active={entry.sick === true}
+                onToggle={(next) => onChange({ ...entry, sick: next })}
+              />
+            )}
+          </div>
         </div>
 
         <div className="mt-6 flex flex-col gap-2">
@@ -2014,6 +2282,7 @@ function QuickEntrySheet({
   const [slipCategoryId, setSlipCategoryId] = useState("");
   const [slipNote, setSlipNote] = useState("");
   const [slipDate, setSlipDate] = useState(draft.date);
+  const [isSickExpanded, setIsSickExpanded] = useState(draft.sick === true);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -2043,14 +2312,14 @@ function QuickEntrySheet({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-6">
-        <div className="w-full max-w-xl rounded-3xl border border-[#d6c2a1] bg-[#f9f3e7] p-5 shadow-[0_28px_56px_rgba(47,38,32,0.32)]">
-          <header className="mb-4 flex items-start justify-between gap-3">
+      <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-4 sm:px-4 sm:pb-6">
+        <div className="w-full max-w-xl rounded-2xl border border-[#d6c2a1] bg-[#f9f3e7] p-4 shadow-[0_28px_56px_rgba(47,38,32,0.32)] sm:rounded-3xl sm:p-5">
+          <header className="mb-3 flex items-start justify-between gap-2 sm:mb-4 sm:gap-3">
             <div>
-              <h2 className="font-heading text-xl text-[#3b2f25]">
+              <h2 className="font-heading text-base text-[#3b2f25] sm:text-xl">
                 Quick entry for {formatDisplayDate(draft.date)}
               </h2>
-              <p className="text-xs uppercase tracking-[0.35em] text-[#a2875e]">
+              <p className="text-[0.65rem] uppercase tracking-[0.35em] text-[#a2875e] sm:text-xs">
                 Rapid capture mode
               </p>
             </div>
@@ -2072,7 +2341,7 @@ function QuickEntrySheet({
                     ref={index === 0 ? focusRef : undefined}
                     type="button"
                     onClick={() =>
-                      onChange((entry) => ({ ...entry, workout: value }))
+                      onChange((entry) => ({ ...entry, workout: value, gymDayType: value === "gym" ? entry.gymDayType : undefined }))
                     }
                     className={`flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
                       draft.workout === value
@@ -2085,6 +2354,85 @@ function QuickEntrySheet({
                 ))}
               </div>
             </fieldset>
+
+            {draft.workout === "gym" && (
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
+                  Gym Day Type
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange((entry) => ({ ...entry, gymDayType: "upper" }))
+                    }
+                    className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
+                      draft.gymDayType === "upper"
+                        ? "border-[#3f6b4a] bg-[#e4f1e9] text-[#2f3f2c]"
+                        : "border-[#d0c0a0] text-[#8c7a63] hover:border-[#b99c6b]"
+                    }`}
+                  >
+                    Upper
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange((entry) => ({ ...entry, gymDayType: "lower" }))
+                    }
+                    className={`rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
+                      draft.gymDayType === "lower"
+                        ? "border-[#3f6b4a] bg-[#e4f1e9] text-[#2f3f2c]"
+                        : "border-[#d0c0a0] text-[#8c7a63] hover:border-[#b99c6b]"
+                    }`}
+                  >
+                    Lower
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {draft.workout === "run" && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
+                  Duration (minutes)
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={draft.runDuration ?? ""}
+                    onChange={(event) =>
+                      onChange((entry) => ({
+                        ...entry,
+                        runDuration: event.target.value
+                          ? parseFloat(event.target.value)
+                          : undefined,
+                      }))
+                    }
+                    placeholder="0"
+                    className="rounded-2xl border border-[#d0c0a0] bg-[#fdf8ef] px-3 py-2 text-sm text-[#3f3227] focus:border-[#a67a45] focus:outline-none focus:ring-0"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
+                  Distance (miles)
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={draft.runDistance ?? ""}
+                    onChange={(event) =>
+                      onChange((entry) => ({
+                        ...entry,
+                        runDistance: event.target.value
+                          ? parseFloat(event.target.value)
+                          : undefined,
+                      }))
+                    }
+                    placeholder="0.00"
+                    className="rounded-2xl border border-[#d0c0a0] bg-[#fdf8ef] px-3 py-2 text-sm text-[#3f3227] focus:border-[#a67a45] focus:outline-none focus:ring-0"
+                  />
+                </label>
+              </div>
+            )}
 
             <div className="grid gap-2 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-[#a2875e]">
@@ -2120,7 +2468,7 @@ function QuickEntrySheet({
             <fieldset className="flex flex-col gap-2">
               <legend className={headingAccentClass}>Diet</legend>
               <ToggleRow
-                label="Late-night regret"
+                label="Fycompa regret"
                 active={draft.lateNightRegret === true}
                 onToggle={(next) =>
                   onChange((entry) => ({ ...entry, lateNightRegret: next }))
@@ -2141,6 +2489,31 @@ function QuickEntrySheet({
                 }
               />
             </fieldset>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSickExpanded(!isSickExpanded)}
+                className="flex items-center justify-between rounded-2xl border border-[#d0c0a0] px-3 py-2 text-sm font-medium text-[#3f3227] transition hover:border-[#b99c6b] hover:bg-[#fdf8ef]"
+              >
+                <span className="flex items-center gap-2">
+                  <span role="img" aria-label="sick">🤒</span>
+                  <span>Sick</span>
+                </span>
+                <span className="text-xs text-[#8c7a63]">
+                  {isSickExpanded ? "−" : "+"}
+                </span>
+              </button>
+              {isSickExpanded && (
+                <ToggleRow
+                  label="I was sick"
+                  active={draft.sick === true}
+                  onToggle={(next) =>
+                    onChange((entry) => ({ ...entry, sick: next }))
+                  }
+                />
+              )}
+            </div>
 
             {categories.length > 0 && onAddSlip && (
               <div className="flex flex-col gap-2 rounded-2xl border border-dashed border-[#d0c0a0] bg-[#fbf6ec] p-3">

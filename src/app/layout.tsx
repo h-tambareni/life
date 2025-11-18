@@ -5,6 +5,7 @@ import {
   Source_Code_Pro,
 } from "next/font/google";
 import "./globals.css";
+import AutoRefresh from "@/components/AutoRefresh";
 
 const headingSerif = Cormorant_Garamond({
   variable: "--font-heading",
@@ -40,6 +41,7 @@ export default function RootLayout({
       <body
         className={`${headingSerif.variable} ${bodySans.variable} ${mono.variable} antialiased`}
       >
+        <AutoRefresh />
         {children}
       </body>
     </html>

@@ -3,11 +3,15 @@ export type WorkoutType = "none" | "gym" | "run";
 export interface DailyEntry {
   date: string; // ISO date (YYYY-MM-DD)
   workout: WorkoutType;
+  gymDayType?: "upper" | "lower"; // For gym workouts
   bedtime?: string; // HH:MM (24h)
   wakeTime?: string; // HH:MM (24h)
   lateNightRegret?: boolean;
   unhealthyEating?: boolean;
   friedFood?: boolean;
+  sick?: boolean;
+  runDuration?: number; // Duration in minutes
+  runDistance?: number; // Distance in miles
 }
 
 export interface SobrietyCategory {
