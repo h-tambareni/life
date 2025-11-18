@@ -831,7 +831,7 @@ function BoardView({
   selectedTagIndex: number;
   tagDropdownPosition: { top: number; left: number };
   onTagSelect: (tag: string) => void;
-  tagDropdownRef: React.RefObject<HTMLDivElement>;
+  tagDropdownRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const columns: { status: TaskStatus; label: string }[] = [
     { status: "todo", label: "To Do" },
@@ -1012,7 +1012,7 @@ function TodoistView({
   selectedTagIndex: number;
   tagDropdownPosition: { top: number; left: number };
   onTagSelect: (tag: string) => void;
-  tagDropdownRef: React.RefObject<HTMLDivElement>;
+  tagDropdownRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div className="rounded-3xl border border-[#d6c2a1] bg-[#f9f3e7] p-4 shadow-[0_14px_32px_rgba(47,38,32,0.08)]">
