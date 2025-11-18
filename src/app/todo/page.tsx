@@ -825,7 +825,7 @@ function BoardView({
   inputValue: string;
   onInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   showTagDropdown: boolean;
   tagSuggestions: string[];
   selectedTagIndex: number;
@@ -1004,7 +1004,7 @@ function TodoistView({
   inputValue: string;
   onInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   section: "school" | "recruiting";
   onBlur: () => void;
   showTagDropdown: boolean;
