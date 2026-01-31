@@ -1,41 +1,71 @@
 "use client";
 
-import { useState, useEffect, useRef, KeyboardEvent, ChangeEvent } from "react";
+import { useState, useEffect, useRef, useMemo, KeyboardEvent, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Task, TaskStatus, Urgency } from "@/types/todo";
 import { parseNaturalDate, extractTags, cleanTaskText } from "@/lib/date-parser";
 import { getISODateString, formatDisplayDate, formatRelativeDate, toDateFromISO, differenceInDays } from "@/lib/date-utils";
 import { parseNaturalTime, formatTime12Hour } from "@/lib/time-parser";
+import {
+  getCustomSections,
+  getTagMemoryKey,
+  CUSTOM_SECTIONS_KEY,
+  BUILT_IN_SECTION_IDS,
+  BUILT_IN_SECTION_NAMES,
+} from "@/lib/todo-sections";
 import HighlightedInput from "@/components/HighlightedInput";
 import SatisfyingCheckbox from "@/components/SatisfyingCheckbox";
 
 const TODO_STORAGE_KEY = "lifeTodo_tasks";
-const TAG_MEMORY_KEY_SCHOOL = "lifeTodo_tagMemory_school";
-const TAG_MEMORY_KEY_RECRUITING = "lifeTodo_tagMemory_recruiting";
-const TAG_MEMORY_KEY_TAMBARENI = "lifeTodo_tagMemory_tambareni";
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function TodoPage() {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [activeInput, setActiveInput] = useState<"tambareni" | "school" | "recruiting" | null>(null);
+  const [customSections, setCustomSectionsState] = useState<{ id: string; name: string }[]>([]);
+  const [activeInput, setActiveInput] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState({ top: 0, left: 0 });
   const [selectedTagIndex, setSelectedTagIndex] = useState(0);
-  const [showDoneTasks, setShowDoneTasks] = useState(false);
-  const [showDoneTasksRecruiting, setShowDoneTasksRecruiting] = useState(false);
+  const [showDoneBySection, setShowDoneBySection] = useState<Record<string, boolean>>({});
   const [remoteEnabled, setRemoteEnabled] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [recurringDaysDraft, setRecurringDaysDraft] = useState<number[]>([]);
+  const [showRecurringPicker, setShowRecurringPicker] = useState(false);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
+  const recurringPickerRef = useRef<HTMLDivElement>(null);
+  const sectionRefsMap = useRef<Record<string, React.RefObject<HTMLInputElement | null>>>({});
   const inputRefs = {
     tambareni: useRef<HTMLInputElement>(null),
-    school: useRef<HTMLInputElement>(null),
-    recruiting: useRef<HTMLInputElement>(null),
   };
   const tagDropdownRef = useRef<HTMLDivElement>(null);
+
+  const getInputRef = (sectionId: string): React.RefObject<HTMLInputElement | null> => {
+    if (sectionId === "tambareni") return inputRefs.tambareni;
+    if (!sectionRefsMap.current[sectionId]) sectionRefsMap.current[sectionId] = { current: null };
+    return sectionRefsMap.current[sectionId];
+  };
+  const focusInput = (sectionId: string) => {
+    getInputRef(sectionId).current?.focus();
+  };
+  const getInputEl = (sectionId: string): HTMLInputElement | null =>
+    getInputRef(sectionId).current ?? null;
+
+  const builtInSections = useMemo(
+    () => BUILT_IN_SECTION_IDS.map((id) => ({ id, name: BUILT_IN_SECTION_NAMES[id] ?? id })),
+    []
+  );
+  const allSections = useMemo(() => [...builtInSections, ...customSections], [builtInSections, customSections]);
+  const todoistSectionIds = useMemo(() => allSections.filter((s) => s.id !== "tambareni"), [allSections]);
+
+  useEffect(() => {
+    setCustomSectionsState(getCustomSections());
+  }, []);
 
   // Load tasks from localStorage and remote
   useEffect(() => {
@@ -98,6 +128,19 @@ export default function TodoPage() {
     };
   }, []);
 
+  // Close recurring picker when clicking outside
+  useEffect(() => {
+    if (!showRecurringPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      const el = recurringPickerRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setShowRecurringPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showRecurringPicker]);
+
   // Reload tasks from Supabase when page becomes visible or window gains focus
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -150,6 +193,14 @@ export default function TodoPage() {
           console.error("Failed to parse tasks from storage event", error);
         }
       }
+      if (e.key === CUSTOM_SECTIONS_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as { id: string; name: string }[];
+          setCustomSectionsState(Array.isArray(parsed) ? parsed : []);
+        } catch {
+          // ignore
+        }
+      }
     };
     const handleCustomStorageChange = (e: Event) => {
       const customEvent = e as CustomEvent<Task[]>;
@@ -179,28 +230,17 @@ export default function TodoPage() {
     if (!isLoaded) return;
     window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(tasks));
     
-    // Update tag memory per section
-    const schoolTags = new Set<string>();
-    const recruitingTags = new Set<string>();
-    const tambareniTags = new Set<string>();
-    
+    const sectionIds = allSections.map((s) => s.id);
+    const tagsBySection: Record<string, Set<string>> = {};
+    sectionIds.forEach((id) => { tagsBySection[id] = new Set<string>(); });
     tasks.forEach((task) => {
-      task.tags.forEach((tag) => {
-        const normalizedTag = tag.toLowerCase();
-        if (task.section === "school") {
-          schoolTags.add(normalizedTag);
-        } else if (task.section === "recruiting") {
-          recruitingTags.add(normalizedTag);
-        } else if (task.section === "tambareni") {
-          tambareniTags.add(normalizedTag);
-        }
-      });
+      if (!tagsBySection[task.section]) tagsBySection[task.section] = new Set<string>();
+      task.tags.forEach((tag) => tagsBySection[task.section].add(tag.toLowerCase()));
     });
-    
-    window.localStorage.setItem(TAG_MEMORY_KEY_SCHOOL, JSON.stringify(Array.from(schoolTags)));
-    window.localStorage.setItem(TAG_MEMORY_KEY_RECRUITING, JSON.stringify(Array.from(recruitingTags)));
-    window.localStorage.setItem(TAG_MEMORY_KEY_TAMBARENI, JSON.stringify(Array.from(tambareniTags)));
-  }, [tasks, isLoaded]);
+    sectionIds.forEach((id) => {
+      window.localStorage.setItem(getTagMemoryKey(id), JSON.stringify(Array.from(tagsBySection[id] ?? [])));
+    });
+  }, [tasks, isLoaded, allSections]);
 
   // Sync tasks to remote (Supabase)
   useEffect(() => {
@@ -245,31 +285,41 @@ export default function TodoPage() {
     };
   }, [tasks, isLoaded, remoteEnabled]);
 
-  // Get remembered tags for a specific section
-  const getRememberedTags = (section: "tambareni" | "school" | "recruiting"): string[] => {
+  const pushToCloud = async () => {
+    setPushMessage("Pushing…");
+    try {
+      const response = await fetch("/api/todo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tasks }),
+      });
+      const json = await response.json();
+      if (!response.ok || json?.message) {
+        throw new Error(json?.message ?? `Request failed with status ${response.status}`);
+      }
+      setPushMessage("Saved to cloud");
+      setRemoteEnabled(true);
+      if (json?.updatedAt) setLastSyncedAt(json.updatedAt);
+    } catch (error) {
+      setPushMessage(error instanceof Error ? error.message : "Failed to push to cloud");
+    }
+    setTimeout(() => setPushMessage(null), 3000);
+  };
+
+  const getRememberedTags = (sectionId: string): string[] => {
     if (typeof window === "undefined") return [];
-    const key = section === "school" 
-      ? TAG_MEMORY_KEY_SCHOOL 
-      : section === "recruiting" 
-        ? TAG_MEMORY_KEY_RECRUITING 
-        : TAG_MEMORY_KEY_TAMBARENI;
-    const stored = window.localStorage.getItem(key);
+    const stored = window.localStorage.getItem(getTagMemoryKey(sectionId));
     const rememberedTags: string[] = [];
     if (stored) {
       try {
-        rememberedTags.push(...JSON.parse(stored) as string[]);
+        rememberedTags.push(...(JSON.parse(stored) as string[]));
       } catch {
-        // Ignore parse errors
+        // ignore
       }
     }
-    // For tambareni section, always include urgency tags and status tags
-    if (section === "tambareni") {
-      const urgencyTags = ["high", "medium", "low"];
-      const statusTags = ["done", "doing", "todo"];
-      [...urgencyTags, ...statusTags].forEach(tag => {
-        if (!rememberedTags.includes(tag)) {
-          rememberedTags.push(tag);
-        }
+    if (sectionId === "tambareni") {
+      ["high", "medium", "low", "done", "doing", "todo"].forEach((tag) => {
+        if (!rememberedTags.includes(tag)) rememberedTags.push(tag);
       });
     }
     return rememberedTags;
@@ -329,7 +379,7 @@ export default function TodoPage() {
       .replace(/\s+/g, " ");
   };
 
-  const createTask = (text: string, section: "tambareni" | "school" | "recruiting", status?: TaskStatus) => {
+  const createTask = (text: string, sectionId: string, status?: TaskStatus, recurringDays?: number[]) => {
     const date = parseNaturalDate(text);
     const time = parseNaturalTime(text);
     const tags = extractTags(text);
@@ -339,24 +389,19 @@ export default function TodoPage() {
     let detectedUrgency: Urgency | undefined;
     let textToClean = text;
     
-    if (section === "tambareni") {
+    if (sectionId === "tambareni") {
       const extractedStatus = extractStatus(text);
       if (extractedStatus) {
         detectedStatus = extractedStatus;
         textToClean = removeStatusKeywords(textToClean);
       }
-      
-      // Extract urgency from @high, @medium, @low tags
       const extractedUrgency = extractUrgency(text);
       if (extractedUrgency) {
         detectedUrgency = extractedUrgency;
-        // Remove urgency tags from text (but keep in tags array)
         textToClean = textToClean.replace(/@(high|medium|low)\b/gi, "").trim().replace(/\s+/g, " ");
       }
     }
-    
     const cleanText = cleanTaskText(textToClean);
-
     if (!cleanText.trim()) return;
 
     const newTask: Task = {
@@ -367,9 +412,10 @@ export default function TodoPage() {
       date: date || undefined,
       time: time || undefined,
       tags,
-      section,
-      status: detectedStatus || (section === "tambareni" ? "todo" : undefined),
+      section: sectionId,
+      status: detectedStatus || (sectionId === "tambareni" ? "todo" : undefined),
       urgency: detectedUrgency,
+      recurringDays: recurringDays && recurringDays.length > 0 ? [...recurringDays].sort((a, b) => a - b) : undefined,
       createdAt: getISODateString(new Date()),
     };
 
@@ -385,33 +431,24 @@ export default function TodoPage() {
     setActiveInput(null);
     setShowTagDropdown(false);
     setTagSuggestions([]);
+    setRecurringDaysDraft([]);
+    setShowRecurringPicker(false);
   };
 
-  const handleInputChange = (
-    e: ChangeEvent<HTMLInputElement>,
-    section: "tambareni" | "school" | "recruiting"
-  ) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>, sectionId: string) => {
     const value = e.target.value;
     setInputValue(value);
-    
-    // Check for @ symbol and show tag suggestions
     const atIndex = value.lastIndexOf("@");
     if (atIndex !== -1) {
       const afterAt = value.substring(atIndex + 1);
       const spaceIndex = afterAt.indexOf(" ");
       const tagQuery = spaceIndex === -1 ? afterAt : afterAt.substring(0, spaceIndex);
-      
-      // Check if the @ is part of a complete tag
-      // A complete tag is: @ followed by word characters, then space or end of string
-      // If tagQuery is empty (just @) or has non-word characters, it's incomplete
       const isCompleteTag = tagQuery.length > 0 && /^\w+$/.test(tagQuery) && (
-        spaceIndex === 0 || // Space immediately after tag
-        (spaceIndex === -1 && atIndex + 1 + tagQuery.length === value.length) // End of string after tag
+        spaceIndex === 0 ||
+        (spaceIndex === -1 && atIndex + 1 + tagQuery.length === value.length)
       );
-      
-      // Only show dropdown if @ is not part of a complete tag
       if (!isCompleteTag) {
-        const rememberedTags = getRememberedTags(section);
+        const rememberedTags = getRememberedTags(sectionId);
         const filtered = tagQuery.length > 0
           ? rememberedTags.filter((tag) =>
               tag.toLowerCase().startsWith(tagQuery.toLowerCase())
@@ -449,10 +486,7 @@ export default function TodoPage() {
     }
   };
 
-  const handleKeyDown = (
-    e: KeyboardEvent<HTMLInputElement>,
-    section: "tambareni" | "school" | "recruiting"
-  ) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, sectionId: string) => {
     if (showTagDropdown && tagSuggestions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -475,7 +509,7 @@ export default function TodoPage() {
             setShowTagDropdown(false);
             // Move cursor after the tag
             setTimeout(() => {
-              const input = inputRefs[section].current;
+              const input = getInputEl(sectionId);
               if (input) {
                 const cursorPos = beforeAt.length + 1 + selectedTag.length + (afterTag ? 1 : 0);
                 input.setSelectionRange(cursorPos, cursorPos);
@@ -491,26 +525,24 @@ export default function TodoPage() {
     }
     
     if (e.key === "Enter" && inputValue.trim()) {
-      const status = section === "tambareni" ? "todo" : undefined;
-      createTask(inputValue, section, status);
+      const status = sectionId === "tambareni" ? "todo" : undefined;
+      createTask(inputValue, sectionId, status);
     } else if (e.key === "Escape") {
       setActiveInput(null);
       setInputValue("");
       setShowTagDropdown(false);
+      setShowRecurringPicker(false);
     }
   };
 
-  const handleAddTaskClick = (section: "tambareni" | "school" | "recruiting") => {
-    if (activeInput === section) return;
-    setActiveInput(section);
+  const handleAddTaskClick = (sectionId: string) => {
+    if (activeInput === sectionId) return;
+    setActiveInput(sectionId);
     setInputValue("");
-    setTimeout(() => {
-      inputRefs[section].current?.focus();
-    }, 0);
+    setTimeout(() => focusInput(sectionId), 0);
   };
 
-  const handleInputBlur = (section: "tambareni" | "school" | "recruiting") => {
-    // Delay blur to allow Enter key to fire first and tag dropdown clicks
+  const handleInputBlur = (_sectionId: string) => {
     setTimeout(() => {
       if (!inputValue.trim()) {
         setActiveInput(null);
@@ -532,7 +564,7 @@ export default function TodoPage() {
       setShowTagDropdown(false);
       // Focus back on input
       setTimeout(() => {
-        const input = inputRefs[activeInput || "tambareni"].current;
+        const input = getInputEl(activeInput || "tambareni");
         if (input) {
           input.focus();
           const cursorPos = beforeAt.length + 1 + tag.length + (afterTag ? 1 : 0);
@@ -658,29 +690,35 @@ export default function TodoPage() {
 
   const tambareniTasks = sortTasksByDate(tasks.filter((t) => t.section === "tambareni"));
   
-  const schoolTasks = sortTasksByDate(tasks.filter((t) => t.section === "school"));
-  const schoolActiveTasks = sortTasksByDate(schoolTasks.filter((t) => !t.tags.includes("done")));
-  const schoolDoneTasks = sortTasksByDate(schoolTasks.filter((t) => t.tags.includes("done")));
-  
-  const recruitingTasks = sortTasksByDate(tasks.filter((t) => t.section === "recruiting"));
-  const recruitingActiveTasks = sortTasksByDate(recruitingTasks.filter((t) => !t.tags.includes("done")));
-  const recruitingDoneTasks = sortTasksByDate(recruitingTasks.filter((t) => t.tags.includes("done")));
-
   return (
     <main className="min-h-screen bg-[#f4f0e6] py-8 text-[#2f2820]">
       <div className="mx-auto w-full max-w-7xl px-4">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-2">
           <h1 className="font-heading text-4xl font-bold text-[#3b2f25]">
             To-Do Inbox
           </h1>
-          <button
-            onClick={() => {
-              router.push("/todo/upcoming");
-            }}
-            className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
-          >
-            Show Upcoming
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={pushToCloud}
+              className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
+            >
+              Push to cloud
+            </button>
+            {pushMessage && (
+              <span className={`text-sm ${pushMessage.startsWith("Saved") ? "text-[#3b6b4a]" : pushMessage === "Pushing…" ? "text-[#9c8463]" : "text-[#b85c3c]"}`}>
+                {pushMessage}
+              </span>
+            )}
+            <button
+              onClick={() => {
+                router.push("/todo/upcoming");
+              }}
+              className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
+            >
+              Show Upcoming
+            </button>
+          </div>
         </div>
 
         {/* Tambareni Careers - Board View */}
@@ -708,84 +746,69 @@ export default function TodoPage() {
             tagDropdownPosition={tagDropdownPosition}
             onTagSelect={handleTagSelect}
             tagDropdownRef={tagDropdownRef}
+            recurringDays={recurringDaysDraft}
+            onRecurringDaysChange={setRecurringDaysDraft}
+            showRecurringPicker={showRecurringPicker}
+            onRecurringPickerToggle={() => setShowRecurringPicker((v) => !v)}
+            recurringPickerRef={recurringPickerRef}
           />
         </section>
 
-        {/* School - Todoist Format */}
-        <section id="school" className="mb-12 scroll-mt-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-heading text-2xl font-bold text-[#3b2f25]">School</h2>
-            <button
-              onClick={() => setShowDoneTasks(!showDoneTasks)}
-              className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
-            >
-              {showDoneTasks
-                ? `Show To-Do${schoolActiveTasks.length > 0 ? ` (${schoolActiveTasks.length})` : ""}`
-                : `Show Done${schoolDoneTasks.length > 0 ? ` (${schoolDoneTasks.length})` : ""}`}
-            </button>
-          </div>
-          <TodoistView
-            tasks={showDoneTasks ? schoolDoneTasks : schoolActiveTasks}
-            onDelete={deleteTask}
-            onDateChange={updateTaskDate}
-            onTimeChange={updateTaskTime}
-            onTagsChange={updateTaskTags}
-            onTextChange={updateTaskText}
-            onAddTask={() => handleAddTaskClick("school")}
-            isInputActive={activeInput === "school"}
-            inputValue={inputValue}
-            onInputChange={(e) => handleInputChange(e, "school")}
-            onKeyDown={(e) => handleKeyDown(e, "school")}
-            inputRef={inputRefs.school}
-            section="school"
-            onBlur={() => handleInputBlur("school")}
-            showTagDropdown={showTagDropdown && activeInput === "school"}
-            tagSuggestions={tagSuggestions}
-            selectedTagIndex={selectedTagIndex}
-            tagDropdownPosition={tagDropdownPosition}
-            onTagSelect={handleTagSelect}
-            tagDropdownRef={tagDropdownRef}
-          />
-        </section>
-
-        {/* Recruiting - Todoist Format */}
-        <section id="recruiting" className="mb-12 scroll-mt-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-heading text-2xl font-bold text-[#3b2f25]">
-              Recruiting
-            </h2>
-            <button
-              onClick={() => setShowDoneTasksRecruiting(!showDoneTasksRecruiting)}
-              className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
-            >
-              {showDoneTasksRecruiting
-                ? `Show To-Do${recruitingActiveTasks.length > 0 ? ` (${recruitingActiveTasks.length})` : ""}`
-                : `Show Done${recruitingDoneTasks.length > 0 ? ` (${recruitingDoneTasks.length})` : ""}`}
-            </button>
-          </div>
-          <TodoistView
-            tasks={showDoneTasksRecruiting ? recruitingDoneTasks : recruitingActiveTasks}
-            onDelete={deleteTask}
-            onDateChange={updateTaskDate}
-            onTimeChange={updateTaskTime}
-            onTagsChange={updateTaskTags}
-            onTextChange={updateTaskText}
-            onAddTask={() => handleAddTaskClick("recruiting")}
-            isInputActive={activeInput === "recruiting"}
-            inputValue={inputValue}
-            onInputChange={(e) => handleInputChange(e, "recruiting")}
-            onKeyDown={(e) => handleKeyDown(e, "recruiting")}
-            inputRef={inputRefs.recruiting}
-            section="recruiting"
-            onBlur={() => handleInputBlur("recruiting")}
-            showTagDropdown={showTagDropdown && activeInput === "recruiting"}
-            tagSuggestions={tagSuggestions}
-            selectedTagIndex={selectedTagIndex}
-            tagDropdownPosition={tagDropdownPosition}
-            onTagSelect={handleTagSelect}
-            tagDropdownRef={tagDropdownRef}
-          />
-        </section>
+        {todoistSectionIds.map((section) => {
+          const sectionTasks = sortTasksByDate(tasks.filter((t) => t.section === section.id));
+          const sectionActiveTasks = sectionTasks.filter((t) => !t.tags.includes("done"));
+          const sectionDoneTasks = sectionTasks.filter((t) => t.tags.includes("done"));
+          const showDone = showDoneBySection[section.id] ?? false;
+          return (
+            <section key={section.id} id={section.id} className="mb-12 scroll-mt-8">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-heading text-2xl font-bold text-[#3b2f25]">{section.name}</h2>
+                <button
+                  onClick={() => setShowDoneBySection((prev) => ({ ...prev, [section.id]: !prev[section.id] }))}
+                  className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
+                >
+                  {showDone
+                    ? `Show To-Do${sectionActiveTasks.length > 0 ? ` (${sectionActiveTasks.length})` : ""}`
+                    : `Show Done${sectionDoneTasks.length > 0 ? ` (${sectionDoneTasks.length})` : ""}`}
+                </button>
+              </div>
+              <TodoistView
+                tasks={showDone ? sectionDoneTasks : sectionActiveTasks}
+                onDelete={deleteTask}
+                onDateChange={updateTaskDate}
+                onTimeChange={updateTaskTime}
+                onTagsChange={updateTaskTags}
+                onTextChange={updateTaskText}
+                onCheckboxChange={(task, checked) => {
+                  if (task.recurringDays?.length && checked) {
+                    deleteTask(task.id);
+                  } else {
+                    updateTaskTags(task.id, checked ? [...task.tags, "done"] : task.tags.filter((t) => t !== "done"));
+                  }
+                }}
+                onAddTask={() => handleAddTaskClick(section.id)}
+                isInputActive={activeInput === section.id}
+                inputValue={inputValue}
+                onInputChange={(e) => handleInputChange(e, section.id)}
+                onKeyDown={(e) => handleKeyDown(e, section.id)}
+                inputRef={getInputRef(section.id)}
+                section={section.id}
+                onBlur={() => handleInputBlur(section.id)}
+                showTagDropdown={showTagDropdown && activeInput === section.id}
+                tagSuggestions={tagSuggestions}
+                selectedTagIndex={selectedTagIndex}
+                tagDropdownPosition={tagDropdownPosition}
+                onTagSelect={handleTagSelect}
+                tagDropdownRef={tagDropdownRef}
+                recurringDays={recurringDaysDraft}
+                onRecurringDaysChange={setRecurringDaysDraft}
+                showRecurringPicker={showRecurringPicker}
+                onRecurringPickerToggle={() => setShowRecurringPicker((v) => !v)}
+                recurringPickerRef={recurringPickerRef}
+              />
+            </section>
+          );
+        })}
       </div>
     </main>
   );
@@ -812,6 +835,11 @@ function BoardView({
   tagDropdownPosition,
   onTagSelect,
   tagDropdownRef,
+  recurringDays,
+  onRecurringDaysChange,
+  showRecurringPicker,
+  onRecurringPickerToggle,
+  recurringPickerRef,
 }: {
   tasks: Task[];
   onStatusChange: (taskId: string, status: TaskStatus) => void;
@@ -832,6 +860,11 @@ function BoardView({
   tagDropdownPosition: { top: number; left: number };
   onTagSelect: (tag: string) => void;
   tagDropdownRef: React.RefObject<HTMLDivElement | null>;
+  recurringDays: number[];
+  onRecurringDaysChange: (days: number[]) => void;
+  showRecurringPicker: boolean;
+  onRecurringPickerToggle: () => void;
+  recurringPickerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const columns: { status: TaskStatus; label: string }[] = [
     { status: "todo", label: "To Do" },
@@ -919,16 +952,75 @@ function BoardView({
       </div>
       {isInputActive ? (
         <div className="relative">
-          <div className="w-full rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-4 py-0.5 text-xs text-[#3f3227] focus-within:border-[#a67a45] focus-within:outline-none focus-within:ring-0">
-            <HighlightedInput
-              value={inputValue}
-              onChange={onInputChange}
-              onKeyDown={onKeyDown}
-              placeholder="Enter task... (e.g., 'Fix bug today @urgent')"
-              className="w-full bg-transparent outline-none leading-none"
-              autoFocus
-              inputRef={inputRef}
-            />
+          <div className="flex w-full items-center gap-1 rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-4 py-0.5 text-xs text-[#3f3227] focus-within:border-[#a67a45] focus-within:outline-none focus-within:ring-0">
+            <div className="min-w-0 flex-1">
+              <HighlightedInput
+                value={inputValue}
+                onChange={onInputChange}
+                onKeyDown={onKeyDown}
+                placeholder="Enter task... (e.g., 'Fix bug today @urgent')"
+                className="w-full bg-transparent outline-none leading-none"
+                autoFocus
+                inputRef={inputRef}
+              />
+            </div>
+            <div ref={recurringPickerRef} className="relative flex shrink-0 items-center">
+              <button
+                type="button"
+                onClick={onRecurringPickerToggle}
+                className={`rounded-lg p-1.5 transition ${
+                  recurringDays.length > 0
+                    ? "bg-[#3f3227] text-[#f4efe6]"
+                    : "text-[#8c7a63] hover:bg-[#e8dfd0] hover:text-[#3f3227]"
+                }`}
+                title="Recurring days"
+                aria-label="Set recurring days"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </button>
+              {showRecurringPicker && (
+                <div
+                  className="absolute right-0 top-full z-50 mt-1 flex flex-col gap-1 rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] p-2 shadow-lg"
+                >
+                  <span className="text-xs font-semibold text-[#3f3227]">Repeat on</span>
+                  <div className="flex flex-wrap gap-1">
+                    {DAY_NAMES.map((name, dayIndex) => {
+                      const selected = recurringDays.includes(dayIndex);
+                      return (
+                        <button
+                          key={dayIndex}
+                          type="button"
+                          onClick={() => {
+                            if (selected) {
+                              onRecurringDaysChange(recurringDays.filter((d) => d !== dayIndex));
+                            } else {
+                              onRecurringDaysChange([...recurringDays, dayIndex].sort((a, b) => a - b));
+                            }
+                          }}
+                          className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                            selected ? "bg-[#3f3227] text-[#f4efe6]" : "bg-[#e8dfd0] text-[#3f3227] hover:bg-[#d6c2a1]"
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {recurringDays.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onRecurringDaysChange([])}
+                      className="mt-1 text-xs text-[#8c7a63] underline hover:text-[#3f3227]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           {showTagDropdown && tagSuggestions.length > 0 && (
             <div
@@ -978,6 +1070,7 @@ function TodoistView({
   onTimeChange,
   onTagsChange,
   onTextChange,
+  onCheckboxChange,
   onAddTask,
   isInputActive,
   inputValue,
@@ -992,6 +1085,11 @@ function TodoistView({
   tagDropdownPosition,
   onTagSelect,
   tagDropdownRef,
+  recurringDays,
+  onRecurringDaysChange,
+  showRecurringPicker,
+  onRecurringPickerToggle,
+  recurringPickerRef,
 }: {
   tasks: Task[];
   onDelete: (taskId: string) => void;
@@ -999,13 +1097,14 @@ function TodoistView({
   onTimeChange: (taskId: string, time: string | undefined) => void;
   onTagsChange: (taskId: string, tags: string[]) => void;
   onTextChange: (taskId: string, text: string) => void;
+  onCheckboxChange?: (task: Task, checked: boolean) => void;
   onAddTask: () => void;
   isInputActive: boolean;
   inputValue: string;
   onInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  section: "school" | "recruiting";
+  inputRef: React.RefObject<HTMLInputElement | null> | ((el: HTMLInputElement | null) => void);
+  section: string;
   onBlur: () => void;
   showTagDropdown: boolean;
   tagSuggestions: string[];
@@ -1013,6 +1112,11 @@ function TodoistView({
   tagDropdownPosition: { top: number; left: number };
   onTagSelect: (tag: string) => void;
   tagDropdownRef: React.RefObject<HTMLDivElement | null>;
+  recurringDays: number[];
+  onRecurringDaysChange: (days: number[]) => void;
+  showRecurringPicker: boolean;
+  onRecurringPickerToggle: () => void;
+  recurringPickerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div className="rounded-3xl border border-[#d6c2a1] bg-[#f9f3e7] p-4 shadow-[0_14px_32px_rgba(47,38,32,0.08)]">
@@ -1026,6 +1130,7 @@ function TodoistView({
             onTimeChange={onTimeChange}
             onTagsChange={onTagsChange}
             onTextChange={onTextChange}
+            onCheckboxChange={onCheckboxChange}
             section={section}
           />
         ))}
@@ -1037,16 +1142,75 @@ function TodoistView({
       </div>
       {isInputActive ? (
         <div className="relative">
-          <div className="w-full rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-4 py-0.5 text-sm text-[#3f3227] focus-within:border-[#a67a45] focus-within:outline-none focus-within:ring-0">
-            <HighlightedInput
-              value={inputValue}
-              onChange={onInputChange}
-              onKeyDown={onKeyDown}
-              placeholder="Enter task... (e.g., 'Study for exam tomorrow @math')"
-              className="w-full bg-transparent outline-none leading-tight"
-              autoFocus
-              inputRef={inputRef}
-            />
+          <div className="flex w-full items-center gap-1 rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-4 py-0.5 text-sm text-[#3f3227] focus-within:border-[#a67a45] focus-within:outline-none focus-within:ring-0">
+            <div className="min-w-0 flex-1">
+              <HighlightedInput
+                value={inputValue}
+                onChange={onInputChange}
+                onKeyDown={onKeyDown}
+                placeholder="Enter task... (e.g., 'Study for exam tomorrow @math')"
+                className="w-full bg-transparent outline-none leading-tight"
+                autoFocus
+                inputRef={inputRef}
+              />
+            </div>
+            <div ref={recurringPickerRef} className="relative flex shrink-0 items-center">
+              <button
+                type="button"
+                onClick={onRecurringPickerToggle}
+                className={`rounded-lg p-1.5 transition ${
+                  recurringDays.length > 0
+                    ? "bg-[#3f3227] text-[#f4efe6]"
+                    : "text-[#8c7a63] hover:bg-[#e8dfd0] hover:text-[#3f3227]"
+                }`}
+                title="Recurring days"
+                aria-label="Set recurring days"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </button>
+              {showRecurringPicker && (
+                <div
+                  className="absolute right-0 top-full z-50 mt-1 flex flex-col gap-1 rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] p-2 shadow-lg"
+                >
+                  <span className="text-xs font-semibold text-[#3f3227]">Repeat on</span>
+                  <div className="flex flex-wrap gap-1">
+                    {DAY_NAMES.map((name, dayIndex) => {
+                      const selected = recurringDays.includes(dayIndex);
+                      return (
+                        <button
+                          key={dayIndex}
+                          type="button"
+                          onClick={() => {
+                            if (selected) {
+                              onRecurringDaysChange(recurringDays.filter((d) => d !== dayIndex));
+                            } else {
+                              onRecurringDaysChange([...recurringDays, dayIndex].sort((a, b) => a - b));
+                            }
+                          }}
+                          className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                            selected ? "bg-[#3f3227] text-[#f4efe6]" : "bg-[#e8dfd0] text-[#3f3227] hover:bg-[#d6c2a1]"
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {recurringDays.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onRecurringDaysChange([])}
+                      className="mt-1 text-xs text-[#8c7a63] underline hover:text-[#3f3227]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           {showTagDropdown && tagSuggestions.length > 0 && (
             <div
@@ -1402,7 +1566,7 @@ function TaskCard({
   );
 }
 
-// Task Card for Todoist View
+// Task Card for Todoist View (inbox)
 function TodoistTaskCard({
   task,
   onDelete,
@@ -1410,6 +1574,7 @@ function TodoistTaskCard({
   onTimeChange,
   onTagsChange,
   onTextChange,
+  onCheckboxChange: onCheckboxChangeProp,
   section,
 }: {
   task: Task;
@@ -1418,33 +1583,38 @@ function TodoistTaskCard({
   onTimeChange: (taskId: string, time: string | undefined) => void;
   onTagsChange: (taskId: string, tags: string[]) => void;
   onTextChange: (taskId: string, text: string) => void;
-  section?: "school" | "recruiting";
+  onCheckboxChange?: (task: Task, checked: boolean) => void;
+  section?: string;
 }) {
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
 
   useEffect(() => {
-    // Reset animation state when task becomes done
     if (task.tags.includes("done") && isAnimatingOut) {
       setIsAnimatingOut(false);
     }
   }, [task.tags, isAnimatingOut]);
 
   const handleCheckboxChange = (checked: boolean) => {
+    if (onCheckboxChangeProp) {
+      onCheckboxChangeProp(task, checked);
+      if (task.recurringDays?.length && checked) {
+        setIsAnimatingOut(true);
+        setTimeout(() => setIsAnimatingOut(false), 600);
+      } else if (!task.recurringDays?.length && checked && !task.tags.includes("done")) {
+        setIsAnimatingOut(true);
+        setTimeout(() => setIsAnimatingOut(false), 600);
+      }
+      return;
+    }
     if (checked) {
-      // Add "done" tag if not already present
       if (!task.tags.includes("done")) {
-        // Start animation first, then update after animation completes
         setIsAnimatingOut(true);
         setTimeout(() => {
           onTagsChange(task.id, [...task.tags, "done"]);
-          // Keep animation state briefly to ensure smooth transition
-          setTimeout(() => {
-            setIsAnimatingOut(false);
-          }, 100);
-        }, 600); // Let animation complete before updating
+          setTimeout(() => setIsAnimatingOut(false), 100);
+        }, 600);
       }
     } else {
-      // Remove "done" tag
       setIsAnimatingOut(false);
       onTagsChange(task.id, task.tags.filter((tag) => tag !== "done"));
     }
@@ -1554,6 +1724,11 @@ function TodoistTaskCard({
           </p>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          {task.recurringDays?.length ? (
+            <span className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-xs text-[#1e3a8a]">
+              Recurring on {task.recurringDays.map((d) => DAY_NAMES[d]).join(", ")}
+            </span>
+          ) : null}
           {task.tags.length > 0 && !isEditingTags && (
             <div className="flex flex-wrap gap-1">
               {task.tags.map((tag) => (

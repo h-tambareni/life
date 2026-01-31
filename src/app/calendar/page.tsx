@@ -296,6 +296,7 @@ export default function Home() {
   );
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
   const [isQuickEntryOpen, setIsQuickEntryOpen] = useState(false);
   const quickEntryInitialFocus = useRef<HTMLButtonElement | null>(null);
   const [hasInitialSynced, setHasInitialSynced] = useState(false);
@@ -525,6 +526,33 @@ export default function Home() {
       window.clearTimeout(timeout);
     };
   }, [dailyEntries, sobrietyState, patternStartDate, isLoaded, remoteEnabled, hasInitialSynced]);
+
+  const pushToCloud = useCallback(async () => {
+    setPushMessage("Pushing…");
+    try {
+      const payload: DashboardSyncPayload = {
+        dailyEntries,
+        sobrietyState,
+        patternStartDate,
+      };
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (!response.ok || json?.message) {
+        throw new Error(json?.message ?? `Request failed with status ${response.status}`);
+      }
+      setPushMessage("Saved to cloud");
+      setRemoteEnabled(true);
+      setRemoteMessage(null);
+      if (json?.updatedAt) setLastSyncedAt(json.updatedAt);
+    } catch (error) {
+      setPushMessage(error instanceof Error ? error.message : "Failed to push to cloud");
+    }
+    setTimeout(() => setPushMessage(null), 3000);
+  }, [dailyEntries, sobrietyState, patternStartDate]);
 
   const monthDays = useMemo(() => {
     const firstDay = getMonthStart(currentMonth);
@@ -1265,6 +1293,18 @@ export default function Home() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-[0.7rem] text-[#8e7b63] sm:gap-3 sm:text-xs">
+          <button
+            type="button"
+            onClick={pushToCloud}
+            className="font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-2 hover:text-[#3f3227] transition"
+          >
+            Push to cloud
+          </button>
+          {pushMessage && (
+            <span className={pushMessage.startsWith("Saved") ? "text-[#3b6b4a]" : pushMessage === "Pushing…" ? "text-[#9c8463]" : "text-[#b85c3c]"}>
+              {pushMessage}
+            </span>
+          )}
           {remoteEnabled ? (
             <>
               <span

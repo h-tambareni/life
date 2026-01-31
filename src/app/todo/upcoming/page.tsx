@@ -1,18 +1,25 @@
 "use client";
 
-import { useState, useEffect, useRef, KeyboardEvent, ChangeEvent } from "react";
+import { useState, useEffect, useRef, useMemo, KeyboardEvent, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Task, TaskStatus, Urgency } from "@/types/todo";
 import { parseNaturalDate, extractTags, cleanTaskText } from "@/lib/date-parser";
 import { getISODateString, formatDisplayDate, formatRelativeDate, toDateFromISO, differenceInDays } from "@/lib/date-utils";
 import { parseNaturalTime, formatTime12Hour } from "@/lib/time-parser";
+import {
+  getCustomSections,
+  setCustomSections,
+  getTagMemoryKey,
+  slugFromName,
+  BUILT_IN_SECTION_IDS,
+  BUILT_IN_SECTION_NAMES,
+  type CustomSection,
+} from "@/lib/todo-sections";
 import HighlightedInput from "@/components/HighlightedInput";
 import SatisfyingCheckbox from "@/components/SatisfyingCheckbox";
 
 const TODO_STORAGE_KEY = "lifeTodo_tasks";
-const TAG_MEMORY_KEY_SCHOOL = "lifeTodo_tagMemory_school";
-const TAG_MEMORY_KEY_RECRUITING = "lifeTodo_tagMemory_recruiting";
-const TAG_MEMORY_KEY_TAMBARENI = "lifeTodo_tagMemory_tambareni";
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function TodoUpcomingPage() {
   const router = useRouter();
@@ -22,19 +29,32 @@ export default function TodoUpcomingPage() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
-  const [activeInput, setActiveInput] = useState<"tambareni" | "school" | "recruiting" | null>(null);
+  const [customSections, setCustomSectionsState] = useState<CustomSection[]>([]);
+  const [activeInput, setActiveInput] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState({ top: 0, left: 0 });
   const [selectedTagIndex, setSelectedTagIndex] = useState(0);
   const [showDoneTasks, setShowDoneTasks] = useState(false);
-  const inputRefs = {
-    tambareni: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement>,
-    school: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement>,
-    recruiting: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement>,
-  };
+  const [recurringDaysDraft, setRecurringDaysDraft] = useState<number[]>([]);
+  const [showRecurringPicker, setShowRecurringPicker] = useState(false);
+  const [showGroupingModal, setShowGroupingModal] = useState(false);
+  const [daysToShow, setDaysToShow] = useState(30);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
+  const recurringPickerRef = useRef<HTMLDivElement>(null);
+  const sharedInputRef = useRef<HTMLInputElement>(null);
   const tagDropdownRef = useRef<HTMLDivElement>(null);
+
+  const builtInSections = useMemo(
+    () => BUILT_IN_SECTION_IDS.map((id) => ({ id, name: BUILT_IN_SECTION_NAMES[id] ?? id })),
+    []
+  );
+  const allSections = useMemo(() => [...builtInSections, ...customSections], [builtInSections, customSections]);
+
+  useEffect(() => {
+    setCustomSectionsState(getCustomSections());
+  }, []);
 
   // Load tasks from localStorage
   useEffect(() => {
@@ -220,55 +240,35 @@ export default function TodoUpcomingPage() {
   useEffect(() => {
     if (!isLoaded) return;
     window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(tasks));
-    
-    // Update tag memory per section
-    const schoolTags = new Set<string>();
-    const recruitingTags = new Set<string>();
-    const tambareniTags = new Set<string>();
-    
-    tasks.forEach((task) => {
-      task.tags.forEach((tag) => {
-        const normalizedTag = tag.toLowerCase();
-        if (task.section === "school") {
-          schoolTags.add(normalizedTag);
-        } else if (task.section === "recruiting") {
-          recruitingTags.add(normalizedTag);
-        } else if (task.section === "tambareni") {
-          tambareniTags.add(normalizedTag);
-        }
-      });
-    });
-    
-    window.localStorage.setItem(TAG_MEMORY_KEY_SCHOOL, JSON.stringify(Array.from(schoolTags)));
-    window.localStorage.setItem(TAG_MEMORY_KEY_RECRUITING, JSON.stringify(Array.from(recruitingTags)));
-    window.localStorage.setItem(TAG_MEMORY_KEY_TAMBARENI, JSON.stringify(Array.from(tambareniTags)));
-  }, [tasks, isLoaded]);
 
-  // Get remembered tags for a specific section
-  const getRememberedTags = (section: "tambareni" | "school" | "recruiting"): string[] => {
+    const sectionIds = allSections.map((s) => s.id);
+    const tagsBySection: Record<string, Set<string>> = {};
+    sectionIds.forEach((id) => {
+      tagsBySection[id] = new Set<string>();
+    });
+    tasks.forEach((task) => {
+      if (!tagsBySection[task.section]) tagsBySection[task.section] = new Set<string>();
+      task.tags.forEach((tag) => tagsBySection[task.section].add(tag.toLowerCase()));
+    });
+    sectionIds.forEach((id) => {
+      window.localStorage.setItem(getTagMemoryKey(id), JSON.stringify(Array.from(tagsBySection[id] ?? [])));
+    });
+  }, [tasks, isLoaded, allSections]);
+
+  const getRememberedTags = (sectionId: string): string[] => {
     if (typeof window === "undefined") return [];
-    const key = section === "school" 
-      ? TAG_MEMORY_KEY_SCHOOL 
-      : section === "recruiting" 
-        ? TAG_MEMORY_KEY_RECRUITING 
-        : TAG_MEMORY_KEY_TAMBARENI;
-    const stored = window.localStorage.getItem(key);
+    const stored = window.localStorage.getItem(getTagMemoryKey(sectionId));
     const rememberedTags: string[] = [];
     if (stored) {
       try {
-        rememberedTags.push(...JSON.parse(stored) as string[]);
+        rememberedTags.push(...(JSON.parse(stored) as string[]));
       } catch {
-        // Ignore parse errors
+        // ignore
       }
     }
-    // For tambareni section, always include urgency tags and status tags
-    if (section === "tambareni") {
-      const urgencyTags = ["high", "medium", "low"];
-      const statusTags = ["done", "doing", "todo"];
-      [...urgencyTags, ...statusTags].forEach(tag => {
-        if (!rememberedTags.includes(tag)) {
-          rememberedTags.push(tag);
-        }
+    if (sectionId === "tambareni") {
+      ["high", "medium", "low", "done", "doing", "todo"].forEach((tag) => {
+        if (!rememberedTags.includes(tag)) rememberedTags.push(tag);
       });
     }
     return rememberedTags;
@@ -326,7 +326,7 @@ export default function TodoUpcomingPage() {
       .replace(/\s+/g, " ");
   };
 
-  const createTask = (text: string, section: "tambareni" | "school" | "recruiting", status?: TaskStatus) => {
+  const createTask = (text: string, sectionId: string, status?: TaskStatus, recurringDays?: number[]) => {
     const date = parseNaturalDate(text);
     const time = parseNaturalTime(text);
     const tags = extractTags(text);
@@ -336,22 +336,20 @@ export default function TodoUpcomingPage() {
     let detectedUrgency: Urgency | undefined;
     let textToClean = text;
     
-    if (section === "tambareni") {
+    if (sectionId === "tambareni") {
       const extractedStatus = extractStatus(text);
       if (extractedStatus) {
         detectedStatus = extractedStatus;
         textToClean = removeStatusKeywords(textToClean);
       }
-      
       const extractedUrgency = extractUrgency(text);
       if (extractedUrgency) {
         detectedUrgency = extractedUrgency;
         textToClean = textToClean.replace(/@(high|medium|low)\b/gi, "").trim().replace(/\s+/g, " ");
       }
     }
-    
-    const cleanText = cleanTaskText(textToClean);
 
+    const cleanText = cleanTaskText(textToClean);
     if (!cleanText.trim()) return;
 
     const newTask: Task = {
@@ -362,9 +360,10 @@ export default function TodoUpcomingPage() {
       date: date || undefined,
       time: time || undefined,
       tags,
-      section,
-      status: detectedStatus || (section === "tambareni" ? "todo" : undefined),
+      section: sectionId,
+      status: detectedStatus || (sectionId === "tambareni" ? "todo" : undefined),
       urgency: detectedUrgency,
+      recurringDays: recurringDays && recurringDays.length > 0 ? [...recurringDays].sort((a, b) => a - b) : undefined,
       createdAt: getISODateString(new Date()),
     };
 
@@ -373,11 +372,13 @@ export default function TodoUpcomingPage() {
     setActiveInput(null);
     setShowTagDropdown(false);
     setTagSuggestions([]);
+    setRecurringDaysDraft([]);
+    setShowRecurringPicker(false);
   };
 
   const handleInputChange = (
     e: ChangeEvent<HTMLInputElement>,
-    section: "tambareni" | "school" | "recruiting"
+    section: "tambareni" | "school" | "recruiting" | "socialmedia"
   ) => {
     const value = e.target.value;
     setInputValue(value);
@@ -394,7 +395,7 @@ export default function TodoUpcomingPage() {
       );
       
       if (!isCompleteTag) {
-        const rememberedTags = getRememberedTags(section);
+        const rememberedTags = getRememberedTags(sectionId);
         const filtered = tagQuery.length > 0
           ? rememberedTags.filter((tag) =>
               tag.toLowerCase().startsWith(tagQuery.toLowerCase())
@@ -429,10 +430,7 @@ export default function TodoUpcomingPage() {
     }
   };
 
-  const handleKeyDown = (
-    e: KeyboardEvent<HTMLInputElement>,
-    section: "tambareni" | "school" | "recruiting"
-  ) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, sectionId: string) => {
     if (showTagDropdown && tagSuggestions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -454,7 +452,7 @@ export default function TodoUpcomingPage() {
             setInputValue(newValue);
             setShowTagDropdown(false);
             setTimeout(() => {
-              const input = inputRefs[section].current;
+              const input = sharedInputRef.current;
               if (input) {
                 const cursorPos = beforeAt.length + 1 + selectedTag.length + (afterTag ? 1 : 0);
                 input.setSelectionRange(cursorPos, cursorPos);
@@ -468,38 +466,54 @@ export default function TodoUpcomingPage() {
         return;
       }
     }
-    
+
     if (e.key === "Enter" && inputValue.trim()) {
-      const status = section === "tambareni" ? "todo" : undefined;
-      createTask(inputValue, section, status);
+      e.preventDefault();
+      const status = sectionId === "tambareni" ? "todo" : undefined;
+      const days = recurringDaysDraft.length > 0 ? [...recurringDaysDraft] : undefined;
+      createTask(inputValue, sectionId, status, days);
     } else if (e.key === "Escape") {
       setActiveInput(null);
       setInputValue("");
       setShowTagDropdown(false);
+      setShowRecurringPicker(false);
     }
   };
 
-  const handleAddTaskClick = (section: "tambareni" | "school" | "recruiting", e?: React.MouseEvent) => {
+  // Close recurring picker when clicking outside
+  useEffect(() => {
+    if (!showRecurringPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      const el = recurringPickerRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setShowRecurringPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showRecurringPicker]);
+
+  const handleAddTaskClick = (sectionId: string, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
     // Blur any currently focused input
-    if (activeInput && activeInput !== section) {
-      inputRefs[activeInput].current?.blur();
+    if (activeInput && activeInput !== sectionId) {
+      sharedInputRef.current?.blur();
     }
-    setActiveInput(section);
+    setActiveInput(sectionId);
     setInputValue("");
     setTimeout(() => {
-      inputRefs[section].current?.focus();
+      sharedInputRef.current?.focus();
     }, 0);
   };
 
-  const handleInputBlur = (section: "tambareni" | "school" | "recruiting") => {
+  const handleInputBlur = (sectionId: string) => {
     // Use a longer timeout to allow button clicks to process first
     setTimeout(() => {
       // Only clear if we're still on the same section (not switching)
-      if (activeInput === section && !inputValue.trim()) {
+      if (activeInput === sectionId && !inputValue.trim()) {
         setActiveInput(null);
         setInputValue("");
       }
@@ -518,7 +532,7 @@ export default function TodoUpcomingPage() {
       setInputValue(newValue);
       setShowTagDropdown(false);
       setTimeout(() => {
-        const input = inputRefs[activeInput || "tambareni"].current;
+        const input = sharedInputRef.current;
         if (input) {
           input.focus();
           const cursorPos = beforeAt.length + 1 + tag.length + (afterTag ? 1 : 0);
@@ -538,47 +552,53 @@ export default function TodoUpcomingPage() {
     });
   };
 
-  const handleCheckboxChange = (task: Task, checked: boolean) => {
-    // Use the latest task data from state to avoid stale props
+  /** When displayDate is provided and task is recurring, completes only that day. Otherwise marks task done (or undone). */
+  const handleCheckboxChange = (task: Task, checked: boolean, displayDate?: string) => {
+    const currentTask = tasks.find((t) => t.id === task.id);
+    if (!currentTask) return;
+
+    if (displayDate && currentTask.recurringDays?.length) {
+      if (checked) {
+        completeRecurringForDate(task.id, displayDate);
+      } else {
+        setTasks((prev) => {
+          const t = prev.find((x) => x.id === task.id);
+          if (!t?.recurringCompletedDates?.length) return prev;
+          const updated = prev.map((x) =>
+            x.id === task.id
+              ? { ...x, recurringCompletedDates: x.recurringCompletedDates!.filter((d) => d !== displayDate) }
+              : x
+          );
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+          }
+          return updated;
+        });
+      }
+      return;
+    }
+
     setTasks((prev) => {
-      const currentTask = prev.find((t) => t.id === task.id);
-      if (!currentTask) return prev;
-      
+      const current = prev.find((t) => t.id === task.id);
+      if (!current) return prev;
       let updated: Task[];
       if (checked) {
-        if (currentTask.section === "tambareni") {
-          // For Tambareni, update status to "done"
-          if (currentTask.status !== "done") {
-            updated = prev.map((t) => 
-              t.id === task.id ? { ...t, status: "done" as TaskStatus } : t
-            );
-          } else {
-            return prev; // Already done
-          }
+        if (current.section === "tambareni") {
+          if (current.status === "done") return prev;
+          updated = prev.map((t) => (t.id === task.id ? { ...t, status: "done" as TaskStatus } : t));
         } else {
-          // For School and Recruiting, add "done" tag
-          if (!currentTask.tags.includes("done")) {
-            updated = prev.map((t) => 
-              t.id === task.id ? { ...t, tags: [...t.tags, "done"] } : t
-            );
-          } else {
-            return prev; // Already done
-          }
+          if (current.tags.includes("done")) return prev;
+          updated = prev.map((t) => (t.id === task.id ? { ...t, tags: [...t.tags, "done"] } : t));
         }
       } else {
-        if (currentTask.section === "tambareni") {
-          // For Tambareni, update status to "todo"
-          updated = prev.map((t) => 
-            t.id === task.id ? { ...t, status: "todo" as TaskStatus } : t
-          );
+        if (current.section === "tambareni") {
+          updated = prev.map((t) => (t.id === task.id ? { ...t, status: "todo" as TaskStatus } : t));
         } else {
-          // For School and Recruiting, remove "done" tag
-          updated = prev.map((t) => 
+          updated = prev.map((t) =>
             t.id === task.id ? { ...t, tags: t.tags.filter((tag) => tag !== "done") } : t
           );
         }
       }
-      
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
       }
@@ -626,68 +646,85 @@ export default function TodoUpcomingPage() {
     });
   };
 
+  const pushToCloud = async () => {
+    setPushMessage("Pushing…");
+    try {
+      const response = await fetch("/api/todo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tasks }),
+      });
+      const json = await response.json();
+      if (!response.ok || json?.message) {
+        throw new Error(json?.message ?? `Request failed with status ${response.status}`);
+      }
+      setPushMessage("Saved to cloud");
+      setRemoteEnabled(true);
+      if (json?.updatedAt) setLastSyncedAt(json.updatedAt);
+    } catch (error) {
+      setPushMessage(error instanceof Error ? error.message : "Failed to push to cloud");
+    }
+    setTimeout(() => setPushMessage(null), 3000);
+  };
+
+  /** Mark a recurring task as completed for a specific date (so it doesn't show on that day). */
+  const completeRecurringForDate = (taskId: string, dateIso: string) => {
+    setTasks((prev) => {
+      const task = prev.find((t) => t.id === taskId);
+      if (!task || !task.recurringDays?.length) return prev;
+      const completed = task.recurringCompletedDates ?? [];
+      if (completed.includes(dateIso)) return prev;
+      const updated = prev.map((t) =>
+        t.id === taskId
+          ? { ...t, recurringCompletedDates: [...completed, dateIso].sort() }
+          : t
+      );
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
   // Filter done tasks from all categories (regardless of date)
   // Tambareni Careers uses status === "done", while School and Recruiting use tags.includes("done")
   const allDoneTasks = tasks.filter((task) => 
     (task.section === "tambareni" && task.status === "done") || 
     (task.section !== "tambareni" && task.tags.includes("done"))
   );
-  const tambareniDoneTasks = allDoneTasks.filter((task) => task.section === "tambareni");
-  const schoolDoneTasks = allDoneTasks.filter((task) => task.section === "school");
-  const recruitingDoneTasks = allDoneTasks.filter((task) => task.section === "recruiting");
-
-  // Sort done tasks by creation date (newest first)
   const sortDoneTasks = (taskList: Task[]): Task[] => {
-    return [...taskList].sort((a, b) => {
-      return (b.createdAt || "").localeCompare(a.createdAt || "");
-    });
+    return [...taskList].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   };
 
-  const sortedTambareniDoneTasks = sortDoneTasks(tambareniDoneTasks);
-  const sortedSchoolDoneTasks = sortDoneTasks(schoolDoneTasks);
-  const sortedRecruitingDoneTasks = sortDoneTasks(recruitingDoneTasks);
-
-  // Organize tasks by date
+  // Organize tasks by date (includes dated tasks + recurring tasks expanded per day)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const tasksWithDates = tasks.filter(
-    (task) => task.date && 
-    !(task.section === "tambareni" && task.status === "done") && 
-    !(task.section !== "tambareni" && task.tags.includes("done"))
-  );
+  const isTaskDone = (task: Task) =>
+    (task.section === "tambareni" && task.status === "done") ||
+    (task.section !== "tambareni" && task.tags.includes("done"));
 
-  const overdueTasks: Task[] = [];
-  const todayTasks: Task[] = [];
-  const tomorrowTasks: Task[] = [];
-  const futureTasksByDate: Map<string, Task[]> = new Map();
-
-  tasksWithDates.forEach((task) => {
-    if (!task.date) return;
-    const taskDate = toDateFromISO(task.date);
-    taskDate.setHours(0, 0, 0, 0);
-    const diffDays = differenceInDays(today, taskDate);
-
-    if (diffDays < 0) {
-      overdueTasks.push(task);
-    } else if (diffDays === 0) {
-      todayTasks.push(task);
-    } else if (diffDays === 1) {
-      tomorrowTasks.push(task);
-    } else {
-      const dateKey = task.date;
-      if (!futureTasksByDate.has(dateKey)) {
-        futureTasksByDate.set(dateKey, []);
-      }
-      futureTasksByDate.get(dateKey)!.push(task);
-    }
-  });
-
-  overdueTasks.sort((a, b) => {
-    const dateA = toDateFromISO(a.date!);
-    const dateB = toDateFromISO(b.date!);
-    return dateA.getTime() - dateB.getTime();
-  });
+  /** Get tasks that appear on a given date (ISO): dated tasks for that date + recurring tasks for that day of week (not completed for that date). */
+  const getTasksForDate = (dateIso: string): Task[] => {
+    const date = toDateFromISO(dateIso);
+    const dayOfWeek = date.getDay();
+    const dated = tasks.filter(
+      (t) =>
+        t.date === dateIso &&
+        !isTaskDone(t)
+    );
+    const recurring = tasks.filter(
+      (t) =>
+        t.recurringDays?.length &&
+        t.recurringDays.includes(dayOfWeek) &&
+        !(t.recurringCompletedDates ?? []).includes(dateIso) &&
+        !isTaskDone(t)
+    );
+    const byId = new Map<string, Task>();
+    dated.forEach((t) => byId.set(t.id, t));
+    recurring.forEach((t) => byId.set(t.id, t));
+    return Array.from(byId.values());
+  };
 
   const sortTasksByTime = (taskList: Task[]): Task[] => {
     return [...taskList].sort((a, b) => {
@@ -700,20 +737,40 @@ export default function TodoUpcomingPage() {
     });
   };
 
+  // Overdue: only dated tasks with date < today
+  const overdueTasks = tasks
+    .filter(
+      (t) =>
+        t.date &&
+        !isTaskDone(t) &&
+        toDateFromISO(t.date).setHours(0, 0, 0, 0) < today.getTime()
+    )
+    .sort((a, b) => toDateFromISO(a.date!).getTime() - toDateFromISO(b.date!).getTime());
   const sortedOverdueTasks = sortTasksByTime(overdueTasks);
-  const sortedTodayTasks = sortTasksByTime(todayTasks);
-  const sortedTomorrowTasks = sortTasksByTime(tomorrowTasks);
 
-  const sortedFutureDates = Array.from(futureTasksByDate.keys()).sort((a, b) => {
-    const dateA = toDateFromISO(a);
-    const dateB = toDateFromISO(b);
-    return dateA.getTime() - dateB.getTime();
-  });
-  
-  sortedFutureDates.forEach((dateKey) => {
-    const tasks = futureTasksByDate.get(dateKey)!;
-    futureTasksByDate.set(dateKey, sortTasksByTime(tasks));
-  });
+  const todayIso = getISODateString(today);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowIso = getISODateString(tomorrow);
+
+  const sortedTodayTasks = sortTasksByTime(getTasksForDate(todayIso));
+  const sortedTomorrowTasks = sortTasksByTime(getTasksForDate(tomorrowIso));
+
+  // Future dates: today+2 through today+(daysToShow-1), only include dates that have tasks or are within range
+  const futureDateSections: { dateKey: string; tasks: Task[] }[] = [];
+  for (let i = 2; i < daysToShow; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const dateKey = getISODateString(d);
+    const dayTasks = getTasksForDate(dateKey);
+    futureDateSections.push({ dateKey, tasks: sortTasksByTime(dayTasks) });
+  }
+
+  const hasAnyUpcoming =
+    sortedOverdueTasks.length > 0 ||
+    sortedTodayTasks.length > 0 ||
+    sortedTomorrowTasks.length > 0 ||
+    futureDateSections.some((s) => s.tasks.length > 0);
 
   const formatDateHeader = (iso: string): string => {
     const date = toDateFromISO(iso);
@@ -760,16 +817,30 @@ export default function TodoUpcomingPage() {
   return (
     <main className="min-h-screen bg-[#f4f0e6] py-8 text-[#2f2820]">
       <div className="mx-auto w-full max-w-7xl px-4">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-2">
           <h1 className="font-heading text-4xl font-bold text-[#3b2f25]">To-Do Upcoming</h1>
-          <button
-            onClick={() => {
-              router.push("/todo");
-            }}
-            className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
-          >
-            Show Inbox
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={pushToCloud}
+              className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
+            >
+              Push to cloud
+            </button>
+            {pushMessage && (
+              <span className={`text-sm ${pushMessage.startsWith("Saved") ? "text-[#3b6b4a]" : pushMessage === "Pushing…" ? "text-[#9c8463]" : "text-[#b85c3c]"}`}>
+                {pushMessage}
+              </span>
+            )}
+            <button
+              onClick={() => {
+                router.push("/todo");
+              }}
+              className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
+            >
+              Show Inbox
+            </button>
+          </div>
         </div>
 
         {/* Toggle button - always visible in same position */}
@@ -779,7 +850,7 @@ export default function TodoUpcomingPage() {
             className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
           >
             {showDoneTasks
-              ? `Show Upcoming${tasksWithDates.length > 0 ? ` (${tasksWithDates.length})` : ""}`
+              ? `Show Upcoming${hasAnyUpcoming ? " (next " + daysToShow + " days)" : ""}`
               : `Show Done${allDoneTasks.length > 0 ? ` (${allDoneTasks.length})` : ""}`}
           </button>
         </div>
@@ -787,59 +858,105 @@ export default function TodoUpcomingPage() {
         {/* Add Task Input at Top - only show when not showing done tasks */}
         {!showDoneTasks && (
           <div className="mb-8 rounded-3xl border border-[#d6c2a1] bg-[#f9f3e7] p-6 shadow-[0_14px_32px_rgba(47,38,32,0.08)]">
-            <div className="mb-4 flex gap-4">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {allSections.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={(e) => handleAddTaskClick(s.id, e)}
+                  className={`whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                    activeInput === s.id
+                      ? "bg-[#3f3227] text-[#f4efe6]"
+                      : "border border-[#cabb9b] text-[#3f3227] hover:border-[#b99c6b]"
+                  }`}
+                  title={s.name.startsWith("@") ? s.name : `@${s.name.toLowerCase().replace(/\s+/g, "")}`}
+                >
+                  {s.name.startsWith("@") ? s.name : s.name}
+                </button>
+              ))}
               <button
-                onClick={(e) => handleAddTaskClick("tambareni", e)}
-                className={`rounded-xl px-3 py-1 text-xs font-semibold transition ${
-                  activeInput === "tambareni"
-                    ? "bg-[#3f3227] text-[#f4efe6]"
-                    : "border border-[#cabb9b] text-[#3f3227] hover:border-[#b99c6b]"
-                }`}
+                type="button"
+                onClick={() => setShowGroupingModal(true)}
+                className="whitespace-nowrap rounded-xl border border-dashed border-[#cabb9b] px-3 py-1.5 text-xs font-semibold text-[#8c7a63] transition hover:border-[#b99c6b] hover:text-[#3f3227]"
               >
-                @tambareni careers
-              </button>
-              <button
-                onClick={(e) => handleAddTaskClick("school", e)}
-                className={`rounded-xl px-3 py-1 text-xs font-semibold transition ${
-                  activeInput === "school"
-                    ? "bg-[#3f3227] text-[#f4efe6]"
-                    : "border border-[#cabb9b] text-[#3f3227] hover:border-[#b99c6b]"
-                }`}
-              >
-                @school
-              </button>
-              <button
-                onClick={(e) => handleAddTaskClick("recruiting", e)}
-                className={`rounded-xl px-3 py-1 text-xs font-semibold transition ${
-                  activeInput === "recruiting"
-                    ? "bg-[#3f3227] text-[#f4efe6]"
-                    : "border border-[#cabb9b] text-[#3f3227] hover:border-[#b99c6b]"
-                }`}
-              >
-                @recruiting
+                Add/remove grouping
               </button>
             </div>
-            {(activeInput === "tambareni" || activeInput === "school" || activeInput === "recruiting") && (
+            {activeInput != null && (
               <div className="relative">
                 <div 
-                  className="w-full rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-4 py-2 text-sm text-[#3f3227] focus-within:border-[#a67a45] focus-within:outline-none focus-within:ring-0"
+                  className="flex w-full items-center gap-1 rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] px-4 py-2 text-sm text-[#3f3227] focus-within:border-[#a67a45] focus-within:outline-none focus-within:ring-0"
                   onBlur={() => handleInputBlur(activeInput)}
                 >
-                  <HighlightedInput
-                    value={inputValue}
-                    onChange={(e) => handleInputChange(e, activeInput)}
-                    onKeyDown={(e) => handleKeyDown(e, activeInput)}
-                    placeholder={
-                      activeInput === "tambareni"
-                        ? "Enter task... (e.g., 'Fix bug today @high @todo')"
-                        : activeInput === "school"
-                          ? "Enter task... (e.g., 'Study for exam tomorrow @math')"
-                          : "Enter task... (e.g., 'Follow up with candidate @phone')"
-                    }
-                    className="w-full bg-transparent outline-none"
-                    autoFocus
-                    inputRef={inputRefs[activeInput]}
-                  />
+                  <div className="min-w-0 flex-1">
+                    <HighlightedInput
+                      value={inputValue}
+                      onChange={(e) => handleInputChange(e, activeInput)}
+                      onKeyDown={(e) => handleKeyDown(e, activeInput)}
+                      placeholder={
+                        activeInput === "tambareni"
+                          ? "Enter task... (e.g., 'Fix bug today @high @todo')"
+                          : "Enter task... (e.g., 'Add date or @tags')"
+                      }
+                      className="w-full bg-transparent outline-none"
+                      autoFocus
+                      inputRef={sharedInputRef}
+                    />
+                  </div>
+                  <div ref={recurringPickerRef} className="relative flex shrink-0 items-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowRecurringPicker((v) => !v)}
+                      className={`rounded-lg p-1.5 transition ${
+                        recurringDaysDraft.length > 0
+                          ? "bg-[#3f3227] text-[#f4efe6]"
+                          : "text-[#8c7a63] hover:bg-[#e8dfd0] hover:text-[#3f3227]"
+                      }`}
+                      title="Recurring days"
+                      aria-label="Set recurring days"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                        <path d="M21 3v5h-5" />
+                      </svg>
+                    </button>
+                    {showRecurringPicker && (
+                      <div className="absolute right-0 top-full z-50 mt-1 flex flex-col gap-1 rounded-xl border border-[#d0c0a0] bg-[#fdf8ef] p-2 shadow-lg">
+                        <span className="text-xs font-semibold text-[#3f3227]">Repeat on</span>
+                        <div className="flex flex-wrap gap-1">
+                          {DAY_NAMES.map((name, dayIndex) => {
+                            const selected = recurringDaysDraft.includes(dayIndex);
+                            return (
+                              <button
+                                key={dayIndex}
+                                type="button"
+                                onClick={() => {
+                                  if (selected) {
+                                    setRecurringDaysDraft((prev) => prev.filter((d) => d !== dayIndex));
+                                  } else {
+                                    setRecurringDaysDraft((prev) => [...prev, dayIndex].sort((a, b) => a - b));
+                                  }
+                                }}
+                                className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                                  selected ? "bg-[#3f3227] text-[#f4efe6]" : "bg-[#e8dfd0] text-[#3f3227] hover:bg-[#d6c2a1]"
+                                }`}
+                              >
+                                {name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {recurringDaysDraft.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setRecurringDaysDraft([])}
+                            className="mt-1 text-xs text-[#8c7a63] underline hover:text-[#3f3227]"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {showTagDropdown && tagSuggestions.length > 0 && activeInput && (
                   <div
@@ -871,87 +988,71 @@ export default function TodoUpcomingPage() {
             {!activeInput && (
               <div className="flex justify-start">
                 <button
-                  onClick={(e) => handleAddTaskClick("tambareni", e)}
+                  onClick={(e) => handleAddTaskClick(allSections[0]?.id ?? "tambareni", e)}
                   className="text-sm font-bold text-[#3f3227] transition hover:border-l-2 hover:border-[#b99c6b] hover:pl-2"
                 >
                   + Add task
                 </button>
               </div>
             )}
+            {showGroupingModal && (
+              <GroupingModal
+                customSections={customSections}
+                onAdd={(name) => {
+                  let id = slugFromName(name);
+                  if (BUILT_IN_SECTION_IDS.includes(id as typeof BUILT_IN_SECTION_IDS[number])) {
+                    id = `${id}-1`;
+                  }
+                  const existingIds = new Set([...BUILT_IN_SECTION_IDS, ...customSections.map((s) => s.id)]);
+                  let base = id;
+                  let n = 1;
+                  while (existingIds.has(id)) {
+                    id = `${base}-${n}`;
+                    n++;
+                  }
+                  const next = [...customSections, { id, name: name.trim() || id }];
+                  setCustomSections(next);
+                  setCustomSectionsState(next);
+                }}
+                onRemove={(id) => {
+                  const next = customSections.filter((s) => s.id !== id);
+                  setCustomSections(next);
+                  setCustomSectionsState(next);
+                }}
+                onClose={() => setShowGroupingModal(false)}
+              />
+            )}
           </div>
         )}
 
         {showDoneTasks ? (
           <>
-            {/* Tambareni Careers Done Tasks */}
-            {sortedTambareniDoneTasks.length > 0 && (
-              <section className="mb-12">
-                <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
-                  Tambareni Careers
-                </h2>
-                <div className="space-y-2">
-                  {sortedTambareniDoneTasks.map((task) => (
-                    <TodoistTaskCard
-                      key={task.id}
-                      task={task}
-                      onDelete={deleteTask}
-                      onDateChange={updateTaskDate}
-                      onTimeChange={updateTaskTime}
-                      onTagsChange={updateTaskTags}
-                      onTextChange={updateTaskText}
-                      onCheckboxChange={handleCheckboxChange}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* School Done Tasks */}
-            {sortedSchoolDoneTasks.length > 0 && (
-              <section className="mb-12">
-                <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
-                  School
-                </h2>
-                <div className="space-y-2">
-                  {sortedSchoolDoneTasks.map((task) => (
-                    <TodoistTaskCard
-                      key={task.id}
-                      task={task}
-                      onDelete={deleteTask}
-                      onDateChange={updateTaskDate}
-                      onTimeChange={updateTaskTime}
-                      onTagsChange={updateTaskTags}
-                      onTextChange={updateTaskText}
-                      onCheckboxChange={handleCheckboxChange}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Recruiting Done Tasks */}
-            {sortedRecruitingDoneTasks.length > 0 && (
-              <section className="mb-12">
-                <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
-                  Recruiting
-                </h2>
-                <div className="space-y-2">
-                  {sortedRecruitingDoneTasks.map((task) => (
-                    <TodoistTaskCard
-                      key={task.id}
-                      task={task}
-                      onDelete={deleteTask}
-                      onDateChange={updateTaskDate}
-                      onTimeChange={updateTaskTime}
-                      onTagsChange={updateTaskTags}
-                      onTextChange={updateTaskText}
-                      onCheckboxChange={handleCheckboxChange}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
+            {allSections.map((section) => {
+              const sectionDoneTasks = allDoneTasks.filter((t) => t.section === section.id);
+              const sorted = sortDoneTasks(sectionDoneTasks);
+              if (sorted.length === 0) return null;
+              return (
+                <section key={section.id} className="mb-12">
+                  <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
+                    {section.name}
+                  </h2>
+                  <div className="space-y-2">
+                    {sorted.map((task) => (
+                      <TodoistTaskCard
+                        key={task.id}
+                        task={task}
+                        onDelete={deleteTask}
+                        onDateChange={updateTaskDate}
+                        onTimeChange={updateTaskTime}
+                        onTagsChange={updateTaskTags}
+                        onTextChange={updateTaskText}
+                        onCheckboxChange={handleCheckboxChange}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
             {allDoneTasks.length === 0 && (
               <p className="text-center text-[#8c7a63]">No done tasks</p>
             )}
@@ -989,13 +1090,14 @@ export default function TodoUpcomingPage() {
             {sortedTodayTasks.length > 0 && (
               <section className="mb-12">
                 <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
-                  {formatDateHeader(sortedTodayTasks[0].date!)}
+                  {formatDateHeader(todayIso)}
                 </h2>
                 <div className="space-y-2">
                   {sortedTodayTasks.map((task) => (
                     <TodoistTaskCard
-                      key={task.id}
+                      key={`${task.id}-${todayIso}`}
                       task={task}
+                      displayDate={todayIso}
                       onDelete={deleteTask}
                       onDateChange={updateTaskDate}
                       onTimeChange={updateTaskTime}
@@ -1012,13 +1114,14 @@ export default function TodoUpcomingPage() {
             {sortedTomorrowTasks.length > 0 && (
               <section className="mb-12">
                 <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
-                  {formatDateHeader(sortedTomorrowTasks[0].date!)}
+                  {formatDateHeader(tomorrowIso)}
                 </h2>
                 <div className="space-y-2">
                   {sortedTomorrowTasks.map((task) => (
                     <TodoistTaskCard
-                      key={task.id}
+                      key={`${task.id}-${tomorrowIso}`}
                       task={task}
+                      displayDate={tomorrowIso}
                       onDelete={deleteTask}
                       onDateChange={updateTaskDate}
                       onTimeChange={updateTaskTime}
@@ -1031,35 +1134,47 @@ export default function TodoUpcomingPage() {
               </section>
             )}
 
-            {/* Future Dates */}
-            {sortedFutureDates.map((dateKey) => {
-              const dateTasks = futureTasksByDate.get(dateKey)!;
-              return (
-                <section key={dateKey} className="mb-12">
-                  <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
-                    {formatDateHeader(dateKey)}
-                  </h2>
-                  <div className="space-y-2">
-                    {dateTasks.map((task) => (
-                      <TodoistTaskCard
-                        key={task.id}
-                        task={task}
-                        onDelete={deleteTask}
-                        onDateChange={updateTaskDate}
-                        onTimeChange={updateTaskTime}
-                        onTagsChange={updateTaskTags}
-                        onTextChange={updateTaskText}
-                        onCheckboxChange={handleCheckboxChange}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
+            {/* Future Dates (next daysToShow days) */}
+            {futureDateSections.map(
+              ({ dateKey, tasks: dateTasks }) =>
+                dateTasks.length > 0 && (
+                  <section key={dateKey} className="mb-12">
+                    <h2 className="mb-4 font-heading text-xl font-bold text-[#3b2f25]">
+                      {formatDateHeader(dateKey)}
+                    </h2>
+                    <div className="space-y-2">
+                      {dateTasks.map((task) => (
+                        <TodoistTaskCard
+                          key={`${task.id}-${dateKey}`}
+                          task={task}
+                          displayDate={dateKey}
+                          onDelete={deleteTask}
+                          onDateChange={updateTaskDate}
+                          onTimeChange={updateTaskTime}
+                          onTagsChange={updateTaskTags}
+                          onTextChange={updateTaskText}
+                          onCheckboxChange={handleCheckboxChange}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+            )}
 
-            {tasksWithDates.length === 0 && (
+            {!hasAnyUpcoming && (
               <p className="text-center text-[#8c7a63]">No upcoming tasks</p>
             )}
+
+            {/* See more tasks */}
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setDaysToShow((d) => d + 30)}
+                className="text-sm font-semibold text-[#8c7a63] underline decoration-dotted underline-offset-4 hover:text-[#3f3227] transition"
+              >
+                See more tasks
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -1067,9 +1182,81 @@ export default function TodoUpcomingPage() {
   );
 }
 
+function GroupingModal({
+  customSections,
+  onAdd,
+  onRemove,
+  onClose,
+}: {
+  customSections: CustomSection[];
+  onAdd: (name: string) => void;
+  onRemove: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [newName, setNewName] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-2xl border border-[#d6c2a1] bg-[#fdf8ef] p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-3 font-heading text-lg font-bold text-[#3b2f25]">Add/remove grouping</h3>
+        <p className="mb-3 text-xs text-[#8c7a63]">Custom groupings appear as new sections in the inbox and upcoming views.</p>
+        <div className="mb-4 flex gap-2">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="New grouping name"
+            className="flex-1 rounded-xl border border-[#d0c0a0] bg-white px-3 py-2 text-sm text-[#3f3227] outline-none focus:border-[#a67a45]"
+            onKeyDown={(e) => e.key === "Enter" && (onAdd(newName), setNewName(""))}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (newName.trim()) {
+                onAdd(newName.trim());
+                setNewName("");
+              }
+            }}
+            className="rounded-xl bg-[#3f3227] px-3 py-2 text-sm font-semibold text-[#f4efe6] transition hover:bg-[#2f2220]"
+          >
+            Add
+          </button>
+        </div>
+        {customSections.length > 0 && (
+          <div className="mb-4 space-y-2">
+            <p className="text-xs font-semibold text-[#8c7a63]">Custom groupings</p>
+            {customSections.map((s) => (
+              <div key={s.id} className="flex items-center justify-between rounded-xl border border-[#d0c0a0] bg-white px-3 py-2">
+                <span className="text-sm text-[#3f3227]">{s.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(s.id)}
+                  className="text-xs font-semibold text-[#8c7a63] underline hover:text-[#a7342d]"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full rounded-xl border border-[#cabb9b] py-2 text-sm font-semibold text-[#3f3227] hover:bg-[#f5ecdd]"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Task Card matching TodoistTaskCard from todo inbox
 function TodoistTaskCard({
   task,
+  displayDate,
   onDelete,
   onDateChange,
   onTimeChange,
@@ -1080,12 +1267,13 @@ function TodoistTaskCard({
   isOverdue = false,
 }: {
   task: Task;
+  displayDate?: string;
   onDelete: (taskId: string) => void;
   onDateChange: (taskId: string, date: string | undefined) => void;
   onTimeChange: (taskId: string, time: string | undefined) => void;
   onTagsChange: (taskId: string, tags: string[]) => void;
   onTextChange: (taskId: string, text: string) => void;
-  onCheckboxChange: (task: Task, checked: boolean) => void;
+  onCheckboxChange: (task: Task, checked: boolean, displayDate?: string) => void;
   formatOverdueDate?: (iso: string) => string;
   isOverdue?: boolean;
 }) {
@@ -1101,34 +1289,36 @@ function TodoistTaskCard({
   const [isHovered, setIsHovered] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
 
+  const isDoneNormally =
+    (task.section === "tambareni" && task.status === "done") ||
+    (task.section !== "tambareni" && task.tags.includes("done"));
+  const isDoneRecurringForDay =
+    displayDate &&
+    task.recurringDays?.length &&
+    (task.recurringCompletedDates ?? []).includes(displayDate);
+  const isDone =
+    displayDate && task.recurringDays?.length ? isDoneRecurringForDay : isDoneNormally;
+
   useEffect(() => {
-    const taskIsDone = (task.section === "tambareni" && task.status === "done") || 
-                       (task.section !== "tambareni" && task.tags.includes("done"));
-    if (taskIsDone && isAnimatingOut) {
+    if (isDoneNormally && isAnimatingOut) {
       setIsAnimatingOut(false);
     }
-  }, [task.tags, task.status, task.section, isAnimatingOut]);
+  }, [task.tags, task.status, task.section, isAnimatingOut, isDoneNormally]);
 
   const handleCheckboxChange = (checked: boolean) => {
-    const taskIsDone = (task.section === "tambareni" && task.status === "done") || 
-                       (task.section !== "tambareni" && task.tags.includes("done"));
     if (checked) {
-      if (!taskIsDone) {
-        // Update immediately, then animate
-        onCheckboxChange(task, true);
-        setIsAnimatingOut(true);
-        setTimeout(() => {
-          setIsAnimatingOut(false);
-        }, 500);
+      if (!isDone) {
+        onCheckboxChange(task, true, displayDate);
+        if (!displayDate || !task.recurringDays?.length) {
+          setIsAnimatingOut(true);
+          setTimeout(() => setIsAnimatingOut(false), 500);
+        }
       }
     } else {
       setIsAnimatingOut(false);
-      onCheckboxChange(task, false);
+      onCheckboxChange(task, false, displayDate);
     }
   };
-
-  const isDone = (task.section === "tambareni" && task.status === "done") || 
-                 (task.section !== "tambareni" && task.tags.includes("done"));
 
   // Get urgency display for tambareni tasks
   const urgencyDisplay = task.section === "tambareni" && task.urgency ? (
@@ -1233,7 +1423,7 @@ function TodoistTaskCard({
             <span
               className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-xs text-[#1e3a8a]"
             >
-              @{task.section === "tambareni" ? "tambarenicareers" : task.section}
+              @{task.section === "tambareni" ? "tambareni careers" : task.section}
             </span>
           )}
           {urgencyDisplay && (
