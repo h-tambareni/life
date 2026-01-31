@@ -1151,7 +1151,7 @@ function TodoistView({
                 placeholder="Enter task... (e.g., 'Study for exam tomorrow @math')"
                 className="w-full bg-transparent outline-none leading-tight"
                 autoFocus
-                inputRef={inputRef}
+                inputRef={inputRef as React.RefObject<HTMLInputElement | null>}
               />
             </div>
             <div ref={recurringPickerRef} className="relative flex shrink-0 items-center">
