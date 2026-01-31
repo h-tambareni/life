@@ -1103,7 +1103,7 @@ function TodoistView({
   inputValue: string;
   onInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
-  inputRef: React.RefObject<HTMLInputElement | null> | ((el: HTMLInputElement | null) => void);
+  inputRef: React.RefObject<HTMLInputElement | null>;
   section: string;
   onBlur: () => void;
   showTagDropdown: boolean;

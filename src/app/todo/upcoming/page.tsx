@@ -376,24 +376,21 @@ export default function TodoUpcomingPage() {
     setShowRecurringPicker(false);
   };
 
-  const handleInputChange = (
-    e: ChangeEvent<HTMLInputElement>,
-    section: "tambareni" | "school" | "recruiting" | "socialmedia"
-  ) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>, sectionId: string) => {
     const value = e.target.value;
     setInputValue(value);
-    
+
     const atIndex = value.lastIndexOf("@");
     if (atIndex !== -1) {
       const afterAt = value.substring(atIndex + 1);
       const spaceIndex = afterAt.indexOf(" ");
       const tagQuery = spaceIndex === -1 ? afterAt : afterAt.substring(0, spaceIndex);
-      
+
       const isCompleteTag = tagQuery.length > 0 && /^\w+$/.test(tagQuery) && (
         spaceIndex === 0 ||
         (spaceIndex === -1 && atIndex + 1 + tagQuery.length === value.length)
       );
-      
+
       if (!isCompleteTag) {
         const rememberedTags = getRememberedTags(sectionId);
         const filtered = tagQuery.length > 0
@@ -1296,8 +1293,8 @@ function TodoistTaskCard({
     displayDate &&
     task.recurringDays?.length &&
     (task.recurringCompletedDates ?? []).includes(displayDate);
-  const isDone =
-    displayDate && task.recurringDays?.length ? isDoneRecurringForDay : isDoneNormally;
+  const isDone: boolean =
+    displayDate && task.recurringDays?.length ? Boolean(isDoneRecurringForDay) : isDoneNormally;
 
   useEffect(() => {
     if (isDoneNormally && isAnimatingOut) {
