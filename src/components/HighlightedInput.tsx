@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, ChangeEvent } from "react";
+import { useRef, useEffect, useCallback, ChangeEvent } from "react";
 import { parseNaturalDate, extractTags } from "@/lib/date-parser";
 import { parseNaturalTime } from "@/lib/time-parser";
 
@@ -11,7 +11,7 @@ interface HighlightedInputProps {
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.Ref<HTMLInputElement | null>;
 }
 
 export default function HighlightedInput({
@@ -25,11 +25,24 @@ export default function HighlightedInput({
 }: HighlightedInputProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const inputElRef = useRef<HTMLInputElement | null>(null);
+
+  const setRef = useCallback(
+    (el: HTMLInputElement | null) => {
+      inputElRef.current = el;
+      if (typeof inputRef === "function") {
+        inputRef(el);
+      } else if (inputRef != null) {
+        (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+      }
+    },
+    [inputRef],
+  );
 
   useEffect(() => {
-    if (!overlayRef.current || !inputRef.current) return;
+    const input = inputElRef.current;
+    if (!overlayRef.current || !input) return;
 
-    const input = inputRef.current;
     const overlay = overlayRef.current;
 
     // Get computed styles from input
@@ -214,12 +227,12 @@ export default function HighlightedInput({
       input.removeEventListener("input", handleInputSync);
       input.removeEventListener("keydown", handleInputSync);
     };
-  }, [value, inputRef]);
+  }, [value]);
 
   return (
     <div ref={containerRef} className="relative w-full">
       <input
-        ref={inputRef}
+        ref={setRef}
         type="text"
         value={value}
         onChange={onChange}
