@@ -544,6 +544,7 @@ export default function TodoUpcomingPage() {
       const updated = prev.map((task) => (task.id === taskId ? { ...task, tags } : task));
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("todoStorageChange", { detail: updated }));
       }
       return updated;
     });
@@ -608,6 +609,7 @@ export default function TodoUpcomingPage() {
       const updated = prev.map((task) => (task.id === taskId ? { ...task, date } : task));
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("todoStorageChange", { detail: updated }));
       }
       return updated;
     });
@@ -618,6 +620,7 @@ export default function TodoUpcomingPage() {
       const updated = prev.map((task) => (task.id === taskId ? { ...task, time } : task));
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("todoStorageChange", { detail: updated }));
       }
       return updated;
     });
@@ -628,6 +631,7 @@ export default function TodoUpcomingPage() {
       const updated = prev.map((task) => (task.id === taskId ? { ...task, text } : task));
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("todoStorageChange", { detail: updated }));
       }
       return updated;
     });
@@ -638,6 +642,7 @@ export default function TodoUpcomingPage() {
       const updated = prev.filter((task) => task.id !== taskId);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("todoStorageChange", { detail: updated }));
       }
       return updated;
     });
@@ -678,6 +683,7 @@ export default function TodoUpcomingPage() {
       );
       if (typeof window !== "undefined") {
         window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("todoStorageChange", { detail: updated }));
       }
       return updated;
     });
